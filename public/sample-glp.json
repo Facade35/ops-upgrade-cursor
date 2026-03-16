@@ -1,0 +1,36 @@
+{
+  "resources": {
+    "energy": 120,
+    "credits": 900,
+    "alloys": 35
+  },
+  "assets": ["orbital-relay", "fusion-reactor", "deep-space-drone"],
+  "events": [
+    {
+      "id": "solar-harvest",
+      "tick": 3,
+      "note": "Solar array output spike",
+      "injects": {
+        "energy": 25
+      }
+    },
+    {
+      "id": "trade-route",
+      "tick": 6,
+      "note": "Interstellar trade delivery",
+      "injects": {
+        "credits": 160,
+        "alloys": 8
+      }
+    },
+    {
+      "id": "reactor-maintenance",
+      "tick": 9,
+      "note": "Routine maintenance draw",
+      "injects": {
+        "energy": -18,
+        "credits": -60
+      }
+    }
+  ]
+}

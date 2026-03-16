@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 210 40% 98%;
+    --card: 0 0% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 18%;
+    --input: 0 0% 14%;
+    --ring: 224.3 76.3% 48%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: #0a0a0a;
+    color: hsl(var(--foreground));
+    font-family: var(--font-mono), ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Global Tension slider: large, visible track and thumb on dark background */
+[data-tension-slider] > div {
+  min-height: 3rem;
+  align-items: center;
+}
+[data-tension-slider] .relative.overflow-hidden.rounded-full {
+  height: 14px !important;
+  min-height: 14px !important;
+  background-color: rgb(82 82 91) !important;
+  border-radius: 9999px;
+}
+[data-tension-slider] .absolute.h-full {
+  background-color: rgb(161 161 170) !important;
+  border-radius: 9999px;
+}
+[data-tension-slider] [role="slider"] {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  background-color: #fff !important;
+  border: 2px solid rgb(161 161 170) !important;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  cursor: grab;
+}
+[data-tension-slider] [role="slider"]:active {
+  cursor: grabbing;
+}
+
+/* Ensure globe and markers render in full color (override any inherited grayscale) */
+.globe-color canvas {
+  filter: brightness(0.7) contrast(1.2) !important;
+}
+
+.scanline-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0) 50%,
+    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0.2)
+  );
+  background-size: 100% 4px;
+  z-index: 10;
+}

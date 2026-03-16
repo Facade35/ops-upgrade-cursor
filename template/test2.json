@@ -1,0 +1,32 @@
+{
+    "scenario_metadata": {
+      "title": "Operation Rising Tide",
+      "description": "2034 South China Sea conflict between PRC and Vietnam. U.S. forces must manage refugee evacuation and regional stability at U-Tapao AB[cite: 31, 33, 35].",
+      "tick_rate": 5,
+      "starting_location": { "lat": 12.6775, "lng": 101.0044 }
+    },
+    "resources": {
+      "JP8 Fuel (gal)": 1320860,
+      "Runway MOG": 33,
+      "Hardened Bunkers": 20,
+      "MREs": 25000,
+      "Housing Capacity": 3000,
+      "tension": 20
+    },
+    "assets": [
+      { "id": "f16c", "label": "F16C Falcon", "fuel_cost": 15000, "mog_cost": 1, "capacity": 0 },
+      { "id": "f15e", "label": "F15E Strike Eagle", "fuel_cost": 18000, "mog_cost": 1, "capacity": 0 },
+      { "id": "f35a", "label": "F35A Lightning", "fuel_cost": 20000, "mog_cost": 1, "capacity": 0 },
+      { "id": "f22", "label": "F22 Raptor", "fuel_cost": 25000, "mog_cost": 1, "capacity": 0 },
+      { "id": "c130", "label": "C130 Hercules", "fuel_cost": 20000, "mog_cost": 2, "capacity": 80 },
+      { "id": "c17", "label": "C17 Globemaster", "fuel_cost": 45000, "mog_cost": 3, "capacity": 150 },
+      { "id": "c5m", "label": "C5M Galaxy", "fuel_cost": 75000, "mog_cost": 4, "capacity": 300 },
+      { "id": "kc135", "label": "KC135 Stratotanker", "fuel_cost": 30000, "mog_cost": 3, "capacity": 0 },
+      { "id": "cv22b", "label": "CV-22B Osprey", "fuel_cost": 12000, "mog_cost": 1, "capacity": 24 }
+    ],
+    "inject_triggers": [
+      { "tick": 1, "type": "INTEL", "title": "Conflict Escalation", "content": "Territorial disagreements between PRC and Vietnam escalate. PRC assets becoming aggressive[cite: 31, 40].", "lat": 10.0, "lng": 114.0 },
+      { "tick": 15, "type": "ADMIN", "title": "INDOPACOM Briefing", "content": "Commander must brief INDOPACOM on airbase status[cite: 49].", "lat": 12.6775, "lng": 101.0044 },
+      { "tick": 30, "type": "OPS", "title": "Refugee Inflow", "content": "First wave of civilian and military aircraft carrying refugees approaching airbase[cite: 39].", "lat": 14.0, "lng": 108.0 }
+    ]
+  }

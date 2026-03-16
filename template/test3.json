@@ -1,0 +1,43 @@
+{
+    "scenario_metadata": {
+      "title": "Operation Rising Tide",
+      "description": "Joint All-Domain evacuation and management mission.",
+      "tick_rate": 5,
+      "starting_location": { "lat": 12.6775, "lng": 101.0044 }
+    },
+    "resources": {
+      "JP8 Fuel (gal)": 1320860,
+      "Runway MOG": 33,
+      "Tension": 20,
+      "Refugees": 0
+    },
+    "assets": [
+      { "id": "c130", "label": "C-130 Hercules", "fuel_cost": 20000, "mog_cost": 2, "capacity": 80 },
+      { "id": "p8", "label": "P-8 Poseidon", "fuel_cost": 30000, "mog_cost": 2, "capacity": 0 },
+      { "id": "f16c", "label": "F16C Falcon", "fuel_cost": 15000, "mog_cost": 1, "capacity": 0 },
+      { "id": "f15e", "label": "F15E Strike Eagle", "fuel_cost": 18000, "mog_cost": 1, "capacity": 0 },
+      { "id": "f35a", "label": "F35A Lightning", "fuel_cost": 20000, "mog_cost": 1, "capacity": 0 }
+    ],
+    "inject_triggers": [
+      {
+        "tick": 10,
+        "type": "INTEL",
+        "title": "Typhoon Francisco Update",
+        "content": "Previous weather models underestimated speed. Forecast landfall Okinawa NET 2200Z Oct 14. Accelerate all plans immediately.",
+        "lat": 26.2124, "lng": 127.6792,
+        "required_response": "MFR",
+        "deadline_tick": 100,
+        "priority": "HIGH"
+      },
+      {
+        "tick": 25,
+        "type": "OPS",
+        "title": "Airliner Ditch - Search and Rescue",
+        "content": "Regional airliner (100 souls) ditched 75nm SE of Yokota. JASDF assets unavailable. Deploy asset for observation and supply airdrop.",
+        "lat": 34.9, "lng": 140.1,
+        "required_response": "COA",
+        "deadline_tick": 75,
+        "priority": "CRITICAL"
+      }
+    ]
+  }
