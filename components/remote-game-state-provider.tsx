@@ -14,14 +14,29 @@ import type {
   DeploymentMissionType,
   DeploymentRequest,
   GameDefinition,
+  InjectTrigger,
 } from "@/types/game";
 import type { GameState } from "@/components/game-state-provider";
-import { spawnUnitsFromAssets } from "@/lib/simulation-units";
+import {
+  distanceKm,
+  estimateFuelRequired,
+  isWithinAoe,
+  spawnUnitsFromAssets,
+} from "@/lib/simulation-units";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  clearSimulationState,
+  fetchSimulationState,
+  persistSimulationState,
+  simulationChannel,
+} from "@/lib/supabase";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SIMULATION_CHANNEL = "glp_simulation_sync";
 const STORAGE_KEY = "glp_session";
+const BASELINE_STORAGE_KEY = "glp_definition_baseline";
+const MAX_INJECT_LOGS = 120;
 
 // ─── Default state ───────────────────────────────────────────────────────────
 
@@ -43,6 +58,7 @@ const defaultState: GameState = {
   globePoints: [],
   scenarioTitle: null,
   deploymentRequests: [],
+  activeRefuels: [],
 };
 
 export function buildHardResetState(): GameState {
@@ -55,6 +71,7 @@ export function buildHardResetState(): GameState {
     status: "UNINITIALIZED",
     globalTension: 20,
     paused: true,
+    activeRefuels: [],
   };
 }
 
@@ -102,6 +119,7 @@ function saveSession(state: GameState): void {
         globePoints: state.globePoints,
         injects: state.injects,
         deploymentRequests: state.deploymentRequests,
+        activeRefuels: state.activeRefuels,
       })
     );
   } catch {
@@ -138,6 +156,26 @@ function clearSession(): void {
   }
 }
 
+function saveBaseline(state: GameState): void {
+  try {
+    localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(serializeState(state)));
+  } catch {
+    // Ignore browser storage errors.
+  }
+}
+
+function loadBaseline(): GameState | null {
+  try {
+    const raw = localStorage.getItem(BASELINE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<GameState>;
+    if (!parsed.loadedFileName) return null;
+    return { ...defaultState, ...parsed };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Serialise state for BroadcastChannel ────────────────────────────────────
 // Strips any non-cloneable objects (e.g. Three.js refs attached by react-globe.gl).
 
@@ -169,9 +207,80 @@ export function serializeState(s: GameState): GameState {
       events: s.events,
       injects: s.injects,
       deploymentRequests: s.deploymentRequests,
+      activeRefuels: s.activeRefuels,
       error: s.error,
     };
   }
+}
+
+function applyEventInjects(
+  resources: GameState["resources"],
+  injects: GameState["resources"]
+): GameState["resources"] {
+  const next = { ...resources };
+  const lowerToKey: Record<string, string> = {};
+  for (const key of Object.keys(next)) {
+    lowerToKey[key.toLowerCase()] = key;
+  }
+  for (const [resource, amount] of Object.entries(injects)) {
+    const canonicalKey = lowerToKey[resource.toLowerCase()] ?? resource;
+    next[canonicalKey] = (next[canonicalKey] ?? 0) + amount;
+  }
+  return next;
+}
+
+function updateTensionKey(
+  resources: GameState["resources"],
+  clamped: number
+): GameState["resources"] {
+  const next = { ...resources };
+  let globalKey: string | undefined;
+  let tensionKey: string | undefined;
+  for (const key of Object.keys(next)) {
+    const lower = key.toLowerCase();
+    if (lower === "global tension") globalKey = key;
+    else if (lower === "tension") tensionKey = key;
+  }
+  const primaryKey = globalKey ?? tensionKey ?? "Global Tension";
+  next[primaryKey] = clamped;
+  if (tensionKey && tensionKey !== primaryKey) next[tensionKey] = clamped;
+  return next;
+}
+
+function buildInjectTriggerKey(trigger: InjectTrigger): string {
+  const lat = typeof trigger.lat === "number" ? trigger.lat.toFixed(4) : "na";
+  const lng = typeof trigger.lng === "number" ? trigger.lng.toFixed(4) : "na";
+  return `${trigger.tick}:${trigger.title ?? "inject"}:${lat}:${lng}`;
+}
+
+function findTransportInjectOnStation(
+  state: GameState,
+  unitId: string
+): { trigger: InjectTrigger; unitIndex: number } | null {
+  const unitIndex = state.units.findIndex((unit) => unit.id === unitId);
+  if (unitIndex < 0) return null;
+  const unit = state.units[unitIndex];
+  if (unit.role !== "TRANSPORT" || unit.status !== "AIRBORNE") return null;
+  const radius = Math.max(0, unit.aoe_radius ?? 0);
+  if (radius <= 0) return null;
+
+  const completed = new Set(unit.completed_inject_ids ?? []);
+  for (const trigger of state.injectTriggers) {
+    if (
+      trigger.tick > state.tick ||
+      trigger.map_visible === false ||
+      typeof trigger.lat !== "number" ||
+      typeof trigger.lng !== "number"
+    ) {
+      continue;
+    }
+    const triggerKey = buildInjectTriggerKey(trigger);
+    if (completed.has(triggerKey)) continue;
+    if (isWithinAoe(unit.lat, unit.lng, trigger.lat, trigger.lng, radius)) {
+      return { trigger, unitIndex };
+    }
+  }
+  return null;
 }
 
 // ─── Inject response types ────────────────────────────────────────────────────
@@ -215,6 +324,8 @@ export interface RemoteGameStateContextType {
   setInjects: (injects: GameState["injects"]) => void;
   setBases: (bases: GameState["bases"]) => void;
   setCurrentTick: (tick: number) => void;
+  updateInjectEventTick: (id: string, tick: number) => Promise<boolean>;
+  triggerInjectEventNow: (id: string) => Promise<boolean>;
   /** Cadet response submissions keyed by triggerId ("tick-title") */
   injectResponses: Record<string, InjectResponseRecord>;
   /** Cadet: submit a response to an inject trigger; broadcasts to all tabs */
@@ -254,7 +365,8 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef<GameState>(state);
   stateRef.current = state;
 
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const externalBroadcastListenersRef = useRef(new Set<(s: GameState) => void>());
 
   // ── Utilities ─────────────────────────────────────────────────────────────
 
@@ -262,6 +374,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     (updater: (s: GameState) => GameState) => {
       setState((prev) => {
         const next = updater(prev);
+        stateRef.current = next;
         saveSession(next);
         return next;
       });
@@ -278,23 +391,55 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     setState(next);
   }, []);
 
-  /** Serialize + postMessage on glp_simulation_sync (same-browser fast path). */
-  const broadcastState = useCallback((s: GameState) => {
-    if (!channelRef.current) return;
-    channelRef.current.postMessage({
-      type: "STATE_UPDATE",
-      payload: serializeState(s),
-    });
-  }, []);
+  const sendBroadcast = useCallback(
+    async (event: string, payload: unknown) => {
+      if (!channelRef.current) return;
+      await channelRef.current.send({
+        type: "broadcast",
+        event,
+        payload,
+      });
+    },
+    []
+  );
+
+  const persistAndPublish = useCallback(
+    async (next: GameState, event = "tick_update") => {
+      const snapshot = serializeState(next);
+      stateRef.current = snapshot;
+      setState(snapshot);
+      saveSession(snapshot);
+      await Promise.allSettled([
+        persistSimulationState(snapshot),
+        sendBroadcast(event, snapshot),
+      ]);
+    },
+    [sendBroadcast]
+  );
+
+  const broadcastState = useCallback(
+    (s: GameState) => {
+      void sendBroadcast("tick_update", serializeState(s));
+    },
+    [sendBroadcast]
+  );
 
   const broadcastHardReset = useCallback(() => {
-    if (!channelRef.current) return;
-    channelRef.current.postMessage({ type: "HARD_RESET" });
-  }, []);
+    const next = buildHardResetState();
+    applyHardResetLocal();
+    void Promise.allSettled([
+      clearSimulationState(),
+      persistSimulationState(next),
+      sendBroadcast("hard_reset", next),
+    ]);
+  }, [applyHardResetLocal, sendBroadcast]);
 
   /** Replace local state with an incoming broadcast payload. */
   const syncState = useCallback((incoming: GameState) => {
-    setState(incoming);
+    const next = serializeState(incoming);
+    stateRef.current = next;
+    saveSession(next);
+    setState(next);
   }, []);
 
   /**
@@ -303,46 +448,39 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
    */
   const subscribeToBroadcast = useCallback(
     (cb: (s: GameState) => void): (() => void) => {
-      const ch = channelRef.current;
-      if (!ch) return () => {};
-      const handler = (e: MessageEvent) => {
-        const msg = e.data as { type: string; payload: GameState };
-        if (msg.type === "STATE_UPDATE") cb(msg.payload);
-      };
-      ch.addEventListener("message", handler);
-      return () => ch.removeEventListener("message", handler);
+      externalBroadcastListenersRef.current.add(cb);
+      return () => externalBroadcastListenersRef.current.delete(cb);
     },
     []
   );
 
-  // ── Mount: BroadcastChannel + localStorage hydration ──────────────────────
-  // The STATE_UPDATE listener lives here — at channel-creation time — so it is
-  // active on BOTH /admin and /dashboard immediately on mount.
-  // (React fires child useEffects before parent useEffects; if a page tried to
-  //  call subscribeToBroadcast the channel would still be null at that point.)
+  // ── Mount: Supabase Realtime + local fallback hydration ───────────────────
 
   useEffect(() => {
-    const ch = new BroadcastChannel(SIMULATION_CHANNEL);
-    channelRef.current = ch;
+    const savedSession = loadSession();
+    if (savedSession) {
+      stateRef.current = savedSession;
+      setState(savedSession);
+    }
 
-    // Apply any incoming same-browser broadcast immediately for every role.
-    // BroadcastChannel never fires for the sender's own tab, so the admin
-    // window cannot overwrite itself with its own broadcasts.
-    const handleBroadcast = (e: MessageEvent) => {
-      const msg = e.data as { type: string; payload: unknown };
-      if (msg.type === "STATE_UPDATE") {
-        setState(msg.payload as GameState);
-      } else if (msg.type === "SIM_STATUS") {
-        const payload = msg.payload as { status?: string };
-        if (payload.status === "STOPPED") {
-          setState((prev) => ({ ...prev, paused: true, status: "STOPPED" }));
-          console.info("[STATE SYNC] Received STOPPED status broadcast.");
+    let mounted = true;
+    const ch = simulationChannel("simulation")
+      .on("broadcast", { event: "tick_update" }, ({ payload }) => {
+        const incoming = payload as GameState;
+        if (!incoming || typeof incoming !== "object") return;
+        syncState(incoming);
+        externalBroadcastListenersRef.current.forEach((cb) => cb(incoming));
+      })
+      .on("broadcast", { event: "hard_reset" }, ({ payload }) => {
+        const incoming = payload as GameState | null;
+        if (incoming) {
+          syncState(incoming);
+        } else {
+          applyHardResetLocal();
         }
-      } else if (msg.type === "HARD_RESET") {
-        applyHardResetLocal();
-        console.info("[STATE SYNC] Received HARD_RESET broadcast.");
-      } else if (msg.type === "RESPONSE_SUBMITTED") {
-        const r = msg.payload as {
+      })
+      .on("broadcast", { event: "response_submitted" }, ({ payload }) => {
+        const r = payload as {
           triggerId: string;
           responseType: "MFR" | "COA";
           content: string;
@@ -357,92 +495,44 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
             submittedAt: r.submittedAt,
           },
         }));
-      } else if (msg.type === "DEPLOYMENT_REQUEST") {
-        const payload = msg.payload as DeploymentRequest;
-        if (payload?.id) {
-          setState((prev) => {
-            const exists = prev.deploymentRequests.some((r) => r.id === payload.id);
+      })
+      .on("broadcast", { event: "deployment_request" }, ({ payload }) => {
+        const request = payload as DeploymentRequest;
+        if (request?.id) {
+          setStateAndPersist((prev) => {
+            const exists = prev.deploymentRequests.some((r) => r.id === request.id);
             if (exists) return prev;
             return {
               ...prev,
-              deploymentRequests: [payload, ...prev.deploymentRequests],
+              deploymentRequests: [request, ...prev.deploymentRequests],
             };
           });
         }
-      }
-    };
-    ch.addEventListener("message", handleBroadcast);
+      });
 
-    // Hydrate from localStorage on first load (both admin refresh and cadet cold-load)
-    const saved = loadSession();
-    if (saved) setState(saved);
+    channelRef.current = ch;
+    ch.subscribe();
+
+    void fetchSimulationState()
+      .then((dbState) => {
+        if (!mounted || !dbState || !dbState.loadedFileName) return;
+        const hydrated = serializeState(dbState);
+        stateRef.current = hydrated;
+        saveSession(hydrated);
+        setState(hydrated);
+      })
+      .catch(() => {
+        // Supabase unavailable; local fallback state remains active.
+      });
 
     return () => {
-      ch.removeEventListener("message", handleBroadcast);
-      ch.close();
+      mounted = false;
+      ch.unsubscribe();
       channelRef.current = null;
     };
-  }, [applyHardResetLocal]);
-
-  // ── SSE: cross-window, cross-device authoritative sync ────────────────────
-  // BroadcastChannel only reaches tabs within the same browser on the same
-  // machine. EventSource connects to the server's tick stream so every window
-  // on every device on the network receives the authoritative state in
-  // real-time — including the admin's own display after each control action.
-  //
-  // The server never fires for paused or empty state — it always reflects the
-  // true simulation store, so we apply it unconditionally when it carries a
-  // loaded scenario. If the server has nothing loaded (e.g. after a restart)
-  // we preserve local state rather than blanking the UI.
-
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function connect() {
-      es = new EventSource("/api/stream");
-
-      es.onmessage = (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data as string) as GameState;
-          setState((prev) => {
-            // Server has an active scenario → always authoritative
-            if (data.loadedFileName) {
-              saveSession(data);
-              return data;
-            }
-            // Server has no scenario (e.g. cold start / restart) →
-            // keep local state so the admin doesn't lose their view.
-            if (prev.loadedFileName) return prev;
-            return data;
-          });
-        } catch {
-          // ignore malformed SSE frames
-        }
-      };
-
-      es.onerror = () => {
-        es?.close();
-        es = null;
-        // Native EventSource auto-reconnects, but we also schedule a manual
-        // retry so a server restart is recovered quickly.
-        retryTimer = setTimeout(connect, 3000);
-      };
-    }
-
-    connect();
-
-    return () => {
-      es?.close();
-      if (retryTimer !== null) clearTimeout(retryTimer);
-    };
-  }, []);
+  }, [applyHardResetLocal, setStateAndPersist, syncState]);
 
   // ── Public actions ────────────────────────────────────────────────────────
-  // Every admin action follows the same pattern:
-  //   1. Optimistic local setState → instant UI feedback on the admin tab.
-  //   2. POST to the server API → server updates its store + SSE fans out to
-  //      every connected window (other browsers, other devices, other tabs).
 
   const loadDefinition = useCallback(
     async (
@@ -450,19 +540,6 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       fileName: string,
       initialTickRate?: number
     ) => {
-      const res = await fetch("/api/admin/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ definition, fileName, initialTickRate }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setState((s) => ({ ...s, error: data.error ?? "Upload failed" }));
-        console.error("[ERROR] Upload failed.", data.error ?? "Upload failed");
-        return;
-      }
-
-      // Optimistic local update — SSE delivers the authoritative state shortly after.
       const next: GameState = {
         ...defaultState,
         scenarioTitle: definition.scenarioTitle ?? null,
@@ -485,81 +562,84 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         tick: 0,
         paused: false,
         status: "RUNNING",
+        deploymentRequests: [],
+        activeRefuels: [],
       };
 
-      stateRef.current = next;
-      setState(next);
-      saveSession(next);
+      saveBaseline(next);
+      await persistAndPublish(next, "tick_update");
     },
-    []
+    [persistAndPublish]
   );
 
   const setTickRate = useCallback(
     (tickRate: number) => {
-      setStateAndPersist((s) => ({ ...s, tickRate }));
-      fetch("/api/admin/control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickRate }),
-      }).catch(() => {
-        console.error("[ERROR] Failed to update tick rate.");
+      setStateAndPersist((s) => {
+        const clampedRate = Math.min(10, Math.max(1, Math.round(tickRate)));
+        const next = { ...s, tickRate: clampedRate };
+        void persistSimulationState(next);
+        void sendBroadcast("tick_update", next);
+        return next;
       });
     },
-    [setStateAndPersist]
+    [sendBroadcast, setStateAndPersist]
   );
 
   const setGlobalTension = useCallback(
     (value: number) => {
       setStateAndPersist((s) => {
         const clamped = Math.min(100, Math.max(0, Math.round(value)));
-        const nextResources = { ...s.resources };
-        let globalKey: string | undefined;
-        let tensionKey: string | undefined;
-        for (const key of Object.keys(nextResources)) {
-          const lower = key.toLowerCase();
-          if (lower === "global tension") globalKey = key;
-          else if (lower === "tension") tensionKey = key;
-        }
-        const primaryKey = globalKey ?? tensionKey ?? "Global Tension";
-        nextResources[primaryKey] = clamped;
-        if (tensionKey && tensionKey !== primaryKey)
-          nextResources[tensionKey] = clamped;
-        return { ...s, resources: nextResources, globalTension: clamped };
-      });
-      fetch("/api/admin/control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ globalTension: value }),
-      }).catch(() => {
-        console.error("[ERROR] Failed to update global tension.");
+        const next = {
+          ...s,
+          resources: updateTensionKey(s.resources, clamped),
+          globalTension: clamped,
+        };
+        void persistSimulationState(next);
+        void sendBroadcast("tick_update", next);
+        return next;
       });
     },
-    [setStateAndPersist]
+    [sendBroadcast, setStateAndPersist]
   );
 
   const togglePaused = useCallback(() => {
-    const next = !stateRef.current.paused;
-    setStateAndPersist((s) => ({ ...s, paused: next, status: next ? s.status : "RUNNING" }));
-    fetch("/api/admin/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paused: next }),
-    }).catch(() => {
-      console.error("[ERROR] Failed to update pause state.");
+    setStateAndPersist((s) => {
+      const nextPaused = !s.paused;
+      const next = {
+        ...s,
+        paused: nextPaused,
+        status: (nextPaused ? "STOPPED" : "RUNNING") as GameState["status"],
+      };
+      void persistSimulationState(next);
+      void sendBroadcast("tick_update", next);
+      return next;
     });
-  }, [setStateAndPersist]);
+  }, [sendBroadcast, setStateAndPersist]);
 
-  const stopSimulation = useCallback(() => {
-    applyHardResetLocal();
-    broadcastHardReset();
-    fetch("/api/admin/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stop: true }),
-    }).catch(() => {
-      console.error("[ERROR] Failed to stop simulation.");
-    });
-  }, [applyHardResetLocal, broadcastHardReset]);
+  const stopSimulation = useCallback(async () => {
+    const baseline = loadBaseline();
+    const next = baseline
+      ? {
+          ...baseline,
+          tick: 0,
+          paused: true,
+          status: "STOPPED" as const,
+          injects: [],
+          deploymentRequests: [],
+          activeRefuels: [],
+          units: spawnUnitsFromAssets(baseline.assets, baseline.bases),
+        }
+      : buildHardResetState();
+
+    stateRef.current = next;
+    saveSession(next);
+    setState(next);
+    await Promise.allSettled([
+      clearSimulationState(),
+      persistSimulationState(next),
+      sendBroadcast("hard_reset", next),
+    ]);
+  }, [sendBroadcast]);
 
   const setError = useCallback((message: string | null) => {
     setState((s) => ({ ...s, error: message }));
@@ -582,6 +662,52 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, tick: nextTick }));
   }, []);
 
+  const updateInjectEventTick = useCallback(
+    async (id: string, tick: number) => {
+      if (!id || !Number.isInteger(tick) || tick < 1) return false;
+      const next = {
+        ...stateRef.current,
+        events: stateRef.current.events.map((event) =>
+          event.id === id ? { ...event, tick } : event
+        ),
+      };
+      await persistAndPublish(next, "tick_update");
+      return true;
+    },
+    [persistAndPublish]
+  );
+
+  const triggerInjectEventNow = useCallback(
+    async (id: string) => {
+      const event = stateRef.current.events.find((e) => e.id === id);
+      if (!event) return false;
+
+      const now = Date.now();
+      const currentTick = stateRef.current.tick;
+      const nextResources = applyEventInjects(stateRef.current.resources, event.injects);
+      const logs = Object.entries(event.injects).map(([resource, amount]) => ({
+        id: `manual-${now}-${event.id ?? resource}-${Math.random().toString(36).slice(2, 8)}`,
+        tick: currentTick,
+        resource,
+        amount,
+        note: event.note,
+        at: new Date(now).toISOString(),
+      }));
+      const next = {
+        ...stateRef.current,
+        resources: nextResources,
+        injects: [...logs, ...stateRef.current.injects].slice(0, MAX_INJECT_LOGS),
+        globalTension: deriveGlobalTension(
+          nextResources,
+          stateRef.current.globalTension
+        ),
+      };
+      await persistAndPublish(next, "tick_update");
+      return true;
+    },
+    [persistAndPublish]
+  );
+
   const submitInjectResponse = useCallback(
     (triggerId: string, responseType: "MFR" | "COA", content: string) => {
       const submittedAt = new Date().toISOString();
@@ -592,13 +718,14 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         submittedAt,
       };
       setInjectResponses((prev) => ({ ...prev, [triggerId]: record }));
-      // Broadcast to all other same-browser tabs (admin sees it immediately)
-      channelRef.current?.postMessage({
-        type: "RESPONSE_SUBMITTED",
-        payload: { triggerId, responseType, content, submittedAt },
+      void sendBroadcast("response_submitted", {
+        triggerId,
+        responseType,
+        content,
+        submittedAt,
       });
     },
-    []
+    [sendBroadcast]
   );
 
   const submitDeploymentRequest = useCallback(
@@ -609,108 +736,218 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       departureTick: number;
       missionType: DeploymentMissionType;
     }) => {
-      try {
-        const res = await fetch("/api/admin/deployments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "request",
-            unitId: request.unitId,
-            targetLat: request.targetLat,
-            targetLng: request.targetLng,
-            departureTick: request.departureTick,
-            missionType: request.missionType,
-          }),
-        });
-        if (!res.ok) return false;
-        const data = (await res.json().catch(() => ({}))) as {
-          state?: GameState;
-          request?: DeploymentRequest;
-        };
-        if (data.state) setState(data.state);
-        if (data.request) {
-          channelRef.current?.postMessage({
-            type: "DEPLOYMENT_REQUEST",
-            payload: data.request,
-          });
-        }
-        return true;
-      } catch {
+      const current = stateRef.current;
+      if (
+        !request.unitId ||
+        !Number.isFinite(request.targetLat) ||
+        !Number.isFinite(request.targetLng) ||
+        !Number.isFinite(request.departureTick)
+      ) {
         return false;
       }
+
+      const departureTick = Math.max(1, Math.floor(request.departureTick));
+      const unit = current.units.find((u) => u.id === request.unitId);
+      if (!unit || unit.status !== "GROUNDED") return false;
+
+      const alreadyPending = current.deploymentRequests.some(
+        (req) => req.unit_id === request.unitId && req.status === "PENDING_APPROVAL"
+      );
+      if (alreadyPending) return false;
+
+      const deployment: DeploymentRequest = {
+        id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        unit_id: unit.id,
+        asset_id: unit.asset_id,
+        unit_label: unit.label,
+        mission_type: request.missionType,
+        target_lat: request.targetLat,
+        target_lng: request.targetLng,
+        departure_tick: departureTick,
+        estimated_fuel_required: estimateFuelRequired(
+          unit,
+          request.targetLat,
+          request.targetLng
+        ),
+        requested_by: "CADET",
+        requested_at: new Date().toISOString(),
+        status: "PENDING_APPROVAL",
+      };
+
+      const next: GameState = {
+        ...current,
+        units: current.units.map((u) =>
+          u.id === request.unitId
+            ? {
+                ...u,
+                status: "PENDING_APPROVAL",
+                deployment_status: "PENDING_APPROVAL",
+                mission_type: request.missionType,
+              }
+            : u
+        ),
+        deploymentRequests: [deployment, ...current.deploymentRequests],
+      };
+      await persistAndPublish(next, "tick_update");
+      void sendBroadcast("deployment_request", deployment);
+      return true;
     },
-    []
+    [persistAndPublish, sendBroadcast]
   );
 
   const decideDeploymentRequest = useCallback(
     async (requestId: string, decision: "approve" | "deny") => {
-      try {
-        const res = await fetch("/api/admin/deployments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: decision,
-            requestId,
-          }),
-        });
-        if (!res.ok) return false;
-        const data = (await res.json().catch(() => ({}))) as {
-          state?: GameState;
+      const req = stateRef.current.deploymentRequests.find((r) => r.id === requestId);
+      if (!req || req.status !== "PENDING_APPROVAL") return false;
+
+      const decidedAt = new Date().toISOString();
+      const nextRequests = stateRef.current.deploymentRequests.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status:
+                decision === "approve"
+                  ? ("APPROVED" as const)
+                  : ("DENIED" as const),
+              decided_at: decidedAt,
+              decided_by: "ADMIN" as const,
+            }
+          : r
+      );
+
+      const nextUnits = stateRef.current.units.map((u) => {
+        if (u.id !== req.unit_id) return u;
+        if (decision === "approve") {
+          return {
+            ...u,
+            status: "GROUNDED" as const,
+            deployment_status: "APPROVED" as const,
+            mission_type: req.mission_type,
+            target_lat: req.target_lat,
+            target_lng: req.target_lng,
+            departure_tick: req.departure_tick,
+          };
+        }
+        return {
+          ...u,
+          status: "GROUNDED" as const,
+          deployment_status: undefined,
+          mission_type: undefined,
         };
-        if (data.state) setState(data.state);
-        channelRef.current?.postMessage({
-          type: "DEPLOYMENT_DECISION",
-          payload: { requestId, decision },
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      });
+
+      const next = {
+        ...stateRef.current,
+        units: nextUnits,
+        deploymentRequests: nextRequests,
+      };
+      await persistAndPublish(next, "tick_update");
+      return true;
     },
-    []
+    [persistAndPublish]
   );
 
-  const initiateRefuel = useCallback(async (unitId: string) => {
-    try {
-      const res = await fetch("/api/admin/doctrine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "initiate_refuel",
-          unitId,
-        }),
-      });
-      if (!res.ok) return false;
-      const data = (await res.json().catch(() => ({}))) as {
-        state?: GameState;
-      };
-      if (data.state) setState(data.state);
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
+  const initiateRefuel = useCallback(
+    async (receiverId: string) => {
+      const receiver = stateRef.current.units.find((unit) => unit.id === receiverId);
+      if (!receiver || receiver.status !== "AIRBORNE") return false;
 
-  const executeMission = useCallback(async (unitId: string) => {
-    try {
-      const res = await fetch("/api/admin/doctrine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "execute_mission",
-          unitId,
-        }),
+      const candidateTankers = stateRef.current.units.filter((unit) => {
+        if (
+          unit.id === receiver.id ||
+          unit.status !== "AIRBORNE" ||
+          unit.role !== "TANKER"
+        ) {
+          return false;
+        }
+        const radius = Math.max(0, unit.aoe_radius ?? 0);
+        if (
+          radius <= 0 ||
+          (unit.transfer_rate ?? 0) <= 0 ||
+          unit.current_fuel <= 0
+        ) {
+          return false;
+        }
+        return isWithinAoe(unit.lat, unit.lng, receiver.lat, receiver.lng, radius);
       });
-      if (!res.ok) return false;
-      const data = (await res.json().catch(() => ({}))) as {
-        state?: GameState;
+
+      if (candidateTankers.length === 0) return false;
+      const tanker = candidateTankers.reduce((closest, current) => {
+        const closestDistance = distanceKm(
+          closest.lat,
+          closest.lng,
+          receiver.lat,
+          receiver.lng
+        );
+        const currentDistance = distanceKm(
+          current.lat,
+          current.lng,
+          receiver.lat,
+          receiver.lng
+        );
+        return currentDistance < closestDistance ? current : closest;
+      });
+
+      const nextRefuels = stateRef.current.activeRefuels.filter(
+        (link) =>
+          link.receiverId !== receiver.id &&
+          !(link.receiverId === receiver.id && link.tankerId === tanker.id)
+      );
+      nextRefuels.unshift({ tankerId: tanker.id, receiverId: receiver.id });
+
+      const next = {
+        ...stateRef.current,
+        activeRefuels: nextRefuels,
       };
-      if (data.state) setState(data.state);
+      await persistAndPublish(next, "tick_update");
       return true;
-    } catch {
-      return false;
-    }
-  }, []);
+    },
+    [persistAndPublish]
+  );
+
+  const executeMission = useCallback(
+    async (unitId: string) => {
+      const result = findTransportInjectOnStation(stateRef.current, unitId);
+      if (!result) return false;
+
+      const { trigger, unitIndex } = result;
+      const unit = stateRef.current.units[unitIndex];
+      const triggerKey = buildInjectTriggerKey(trigger);
+      const completedIds = Array.isArray(unit.completed_inject_ids)
+        ? unit.completed_inject_ids
+        : [];
+      if (completedIds.includes(triggerKey)) return false;
+
+      const now = Date.now();
+      const note = `${unit.label} on station for ${trigger.title ?? "active inject"}`;
+      const missionLog = {
+        id: `mission-${now}-${unit.id}-${Math.random().toString(36).slice(2, 8)}`,
+        tick: stateRef.current.tick,
+        resource: "mission",
+        amount: 1,
+        note,
+        at: new Date(now).toISOString(),
+      };
+
+      const nextUnits = stateRef.current.units.map((u) =>
+        u.id === unit.id
+          ? {
+              ...u,
+              completed_inject_ids: [...completedIds, triggerKey],
+            }
+          : u
+      );
+
+      const next = {
+        ...stateRef.current,
+        units: nextUnits,
+        injects: [missionLog, ...stateRef.current.injects].slice(0, MAX_INJECT_LOGS),
+      };
+      await persistAndPublish(next, "tick_update");
+      return true;
+    },
+    [persistAndPublish]
+  );
 
   // ── Context value ─────────────────────────────────────────────────────────
 
@@ -733,6 +970,8 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjects,
       setBases,
       setCurrentTick,
+      updateInjectEventTick,
+      triggerInjectEventNow,
       injectResponses,
       submitInjectResponse,
       submitDeploymentRequest,
@@ -758,6 +997,8 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjects,
       setBases,
       setCurrentTick,
+      updateInjectEventTick,
+      triggerInjectEventNow,
       injectResponses,
       submitInjectResponse,
       submitDeploymentRequest,

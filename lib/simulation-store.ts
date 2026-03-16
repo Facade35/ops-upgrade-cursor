@@ -93,7 +93,6 @@ const initialState: SimulationState = {
 
 let state: SimulationState = { ...initialState };
 const listeners = new Set<(s: SimulationState) => void>();
-let tickTimer: ReturnType<typeof setInterval> | null = null;
 
 function applyActiveRefuels(
   units: SpawnedUnit[],
@@ -177,100 +176,11 @@ function setState(next: SimulationState) {
   listeners.forEach((cb) => cb(state));
 }
 
-// Single source of truth for the simulation clock.
-// The admin UI configures `tickRate` and `paused` via the /api/admin routes,
-// and this timer advances `state.tick` on the server at ~1000 / tickRate ms.
-// All connected clients (admin + cadets) receive the updated state through
-// the SSE stream exposed by /api/stream.
-function startTickTimer() {
-  if (tickTimer) return;
-  tickTimer = setInterval(() => {
-    const now = Date.now();
-    const nextTick = state.tick + 1;
-    const launchedUnits = state.units.map((unit) => {
-      if (
-        unit.status === "GROUNDED" &&
-        unit.deployment_status === "APPROVED" &&
-        typeof unit.departure_tick === "number" &&
-        unit.departure_tick <= nextTick &&
-        typeof unit.target_lat === "number" &&
-        typeof unit.target_lng === "number"
-      ) {
-        return {
-          ...unit,
-          status: "AIRBORNE" as const,
-          current_base: null,
-        };
-      }
-      return unit;
-    });
-    const movedUnits = applyMovementTick(launchedUnits);
-    const firedEvents = state.events.filter((e) => e.tick === nextTick);
-    if (firedEvents.length === 0) {
-      const fuelStep = applyFuelTick(movedUnits, state.bases);
-      const doctrineStep = applyActiveRefuels(
-        fuelStep.units,
-        state.activeRefuels
-      );
-      const nextState: SimulationState = {
-        ...state,
-        tick: nextTick,
-        units: doctrineStep.units,
-        bases: fuelStep.bases,
-        activeRefuels: doctrineStep.activeRefuels,
-        globalTension: deriveGlobalTension(state.resources, state.globalTension),
-      };
-      setState(nextState);
-      return;
-    }
-    let nextResources = state.resources;
-    const nextInjects: InjectLog[] = [];
-    for (const event of firedEvents) {
-      console.info("[INJECT] Event fired on tick", nextTick, event.id ?? "unknown");
-      nextResources = applyEventInjects(nextResources, event.injects);
-      for (const [resource, amount] of Object.entries(event.injects)) {
-        nextInjects.push({
-          id: `${now}-${event.id ?? resource}-${Math.random().toString(36).slice(2, 8)}`,
-          tick: nextTick,
-          resource,
-          amount,
-          note: event.note,
-          at: new Date(now).toISOString(),
-        });
-      }
-    }
-    const fuelStep = applyFuelTick(movedUnits, state.bases);
-    const doctrineStep = applyActiveRefuels(
-      fuelStep.units,
-      state.activeRefuels
-    );
-    const nextState: SimulationState = {
-      ...state,
-      tick: nextTick,
-      resources: nextResources,
-      units: doctrineStep.units,
-      bases: fuelStep.bases,
-      injects: [...nextInjects, ...state.injects].slice(0, MAX_INJECT_LOGS),
-      activeRefuels: doctrineStep.activeRefuels,
-      globalTension: deriveGlobalTension(nextResources, state.globalTension),
-    };
-    setState(nextState);
-  }, Math.max(100, 1000 / state.tickRate));
-}
-
-function stopTickTimer() {
-  if (tickTimer) {
-    clearInterval(tickTimer);
-    tickTimer = null;
-  }
-}
-
 export function loadDefinition(
   definition: GameDefinition,
   fileName: string,
   initialTickRate?: number
 ) {
-  stopTickTimer();
   const next: SimulationState = {
     ...state,
     resources: definition.resources,
@@ -297,7 +207,6 @@ export function loadDefinition(
     next.tickRate = Math.min(10, Math.max(1, Math.round(initialTickRate)));
   }
   setState(next);
-  if (!next.paused) startTickTimer();
 }
 
 function updateTensionKey(resources: ResourceMap, clamped: number): ResourceMap {
@@ -318,10 +227,6 @@ function updateTensionKey(resources: ResourceMap, clamped: number): ResourceMap 
 export function setTickRate(tickRate: number) {
   const next = { ...state, tickRate };
   setState(next);
-  if (!next.paused) {
-    stopTickTimer();
-    startTickTimer();
-  }
 }
 
 export function setGlobalTension(value: number) {
@@ -341,12 +246,9 @@ export function setPaused(paused: boolean) {
   const nextStatus: SimulationState["status"] = paused ? state.status : "RUNNING";
   const next = { ...state, paused, status: nextStatus };
   setState(next);
-  if (next.paused) stopTickTimer();
-  else startTickTimer();
 }
 
 export function stopSimulation() {
-  stopTickTimer();
   setState({
     ...initialState,
     tickRate: state.tickRate,

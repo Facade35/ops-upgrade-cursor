@@ -1,6 +1,4 @@
 "use client";
-
-import { useEffect } from "react";
 import Link from "next/link";
 import { ExternalLink, FileClock, Plane, Timer } from "lucide-react";
 
@@ -15,37 +13,11 @@ import { AdminInjectManager } from "@/components/admin-inject-manager";
 import { AdminIntelTab } from "@/components/admin-intel-tab";
 import { AdminDeploymentsTab } from "@/components/admin-deployments-tab";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
+import { useAdminTickEngine } from "@/hooks/use-admin-tick-engine";
 
 function AdminContent() {
-  const { state, broadcastState, broadcastHardReset } = useRemoteGameState();
-
-  // ── Publisher: broadcast to glp_simulation_sync on every meaningful change ──
-  // Fires whenever tick advances, pause state toggles, resources change, or a
-  // new scenario is loaded / its title changes. The channel.postMessage call is
-  // here so the publish intent is explicit and co-located with the admin route.
-  useEffect(() => {
-    if (!state.loadedFileName) return;
-    broadcastState(state);
-  }, [
-    state.tick,
-    state.paused,
-    state.resources,
-    state.globalTension,
-    state.loadedFileName,
-    state.scenarioTitle,
-    // broadcastState is stable (useCallback with no deps), safe to include
-    broadcastState,
-  ]);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      broadcastHardReset();
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [broadcastHardReset]);
+  const { state } = useRemoteGameState();
+  useAdminTickEngine();
 
   const scenarioTitle = state.scenarioTitle ?? "Admin Control";
   const pendingSorties = state.deploymentRequests.filter(

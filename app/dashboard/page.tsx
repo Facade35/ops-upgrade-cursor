@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-
 import Globe3D from "@/components/Globe3D";
 import { PulseSidebar } from "@/components/pulse-sidebar";
 import { triggerKey } from "@/components/inject-trigger-card";
@@ -10,37 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IntelArchive } from "@/components/intel-archive";
 import { CadetActionsTab } from "@/components/cadet-actions-tab";
 import { CadetDeploymentsTab } from "@/components/cadet-deployments-tab";
-import {
-  SIMULATION_CHANNEL,
-  useRemoteGameState,
-} from "@/components/remote-game-state-provider";
+import { useRemoteGameState } from "@/components/remote-game-state-provider";
 
 function DashboardContent() {
-  const { state, injectResponses, setAssets, setInjects, setBases, setCurrentTick } =
-    useRemoteGameState();
-
-  useEffect(() => {
-    const ch = new BroadcastChannel(SIMULATION_CHANNEL);
-    const handleMessage = (e: MessageEvent) => {
-      const msg = e.data;
-      if (
-        msg &&
-        typeof msg === "object" &&
-        "type" in msg &&
-        (msg as { type?: string }).type === "HARD_RESET"
-      ) {
-        setAssets([]);
-        setInjects([]);
-        setBases([]);
-        setCurrentTick(0);
-      }
-    };
-    ch.addEventListener("message", handleMessage);
-    return () => {
-      ch.removeEventListener("message", handleMessage);
-      ch.close();
-    };
-  }, [setAssets, setInjects, setBases, setCurrentTick]);
+  const { state, injectResponses } = useRemoteGameState();
 
   const scenarioTitle = state.scenarioTitle ?? "Cadet Dashboard";
   const actionsBadgeCount = state.injectTriggers.filter((trigger) => {

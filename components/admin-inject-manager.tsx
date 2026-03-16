@@ -21,7 +21,8 @@ function summarizeInjects(event: GameEvent): string {
 }
 
 export function AdminInjectManager() {
-  const { state, injectResponses } = useRemoteGameState();
+  const { state, injectResponses, updateInjectEventTick, triggerInjectEventNow } =
+    useRemoteGameState();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [pendingTicks, setPendingTicks] = useState<Record<string, number>>({});
@@ -41,11 +42,7 @@ export function AdminInjectManager() {
     const tick = pendingTicks[id] ?? event.tick;
     setSavingId(id);
     try {
-      await fetch("/api/admin/inject", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update", id, tick }),
-      });
+      await updateInjectEventTick(id, tick);
     } finally {
       setSavingId(null);
     }
@@ -56,11 +53,7 @@ export function AdminInjectManager() {
     if (!id) return;
     setTriggeringId(id);
     try {
-      await fetch("/api/admin/inject", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "trigger", id }),
-      });
+      await triggerInjectEventNow(id);
     } finally {
       setTriggeringId(null);
     }

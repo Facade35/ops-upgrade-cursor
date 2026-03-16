@@ -30,6 +30,7 @@ export interface GameState {
   globePoints: GameDefinition["globePoints"];
   scenarioTitle?: string | null;
   deploymentRequests: DeploymentRequest[];
+  activeRefuels: Array<{ tankerId: string; receiverId: string }>;
 }
 
 type Action =
@@ -71,6 +72,7 @@ const initialState: GameState = {
   globePoints: [],
   scenarioTitle: null,
   deploymentRequests: [],
+  activeRefuels: [],
 };
 
 function deriveGlobalTension(resources: ResourceMap, fallback: number): number {
