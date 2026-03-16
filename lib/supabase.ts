@@ -2,8 +2,7 @@ import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 
 import type { GameState } from "@/components/game-state-provider";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 
 const SIMULATION_TABLE = "simulation_state";
 const ACTIVE_SESSION_ID = "active-session";
