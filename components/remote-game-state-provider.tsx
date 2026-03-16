@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import type {
   DeploymentMissionType,
   DeploymentRequest,
@@ -164,18 +165,6 @@ function saveBaseline(state: GameState): void {
   }
 }
 
-function loadBaseline(): GameState | null {
-  try {
-    const raw = localStorage.getItem(BASELINE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<GameState>;
-    if (!parsed.loadedFileName) return null;
-    return { ...defaultState, ...parsed };
-  } catch {
-    return null;
-  }
-}
-
 // ─── Serialise state for BroadcastChannel ────────────────────────────────────
 // Strips any non-cloneable objects (e.g. Three.js refs attached by react-globe.gl).
 
@@ -292,6 +281,10 @@ export interface InjectResponseRecord {
   submittedAt: string;
 }
 
+type PersistedStateWithResponses = GameState & {
+  injectResponses?: Record<string, InjectResponseRecord>;
+};
+
 // ─── Context type ─────────────────────────────────────────────────────────────
 
 export interface RemoteGameStateContextType {
@@ -355,6 +348,8 @@ export const RemoteGameStateContext =
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isAdminPath = pathname === "/admin";
   const [state, setState] = useState<GameState>(defaultState);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [injectResponses, setInjectResponses] = useState<
@@ -406,15 +401,19 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
   const persistAndPublish = useCallback(
     async (next: GameState, event = "tick_update") => {
       const snapshot = serializeState(next);
+      const snapshotWithResponses = {
+        ...snapshot,
+        injectResponses,
+      } as PersistedStateWithResponses;
       stateRef.current = snapshot;
       setState(snapshot);
       saveSession(snapshot);
       await Promise.allSettled([
-        persistSimulationState(snapshot),
+        persistSimulationState(snapshotWithResponses),
         sendBroadcast(event, snapshot),
       ]);
     },
-    [sendBroadcast]
+    [injectResponses, sendBroadcast]
   );
 
   const broadcastState = useCallback(
@@ -429,13 +428,25 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     applyHardResetLocal();
     void Promise.allSettled([
       clearSimulationState(),
-      persistSimulationState(next),
+      persistSimulationState({
+        ...next,
+        injectResponses: {},
+      } as PersistedStateWithResponses),
       sendBroadcast("hard_reset", next),
     ]);
   }, [applyHardResetLocal, sendBroadcast]);
 
   /** Replace local state with an incoming broadcast payload. */
   const syncState = useCallback((incoming: GameState) => {
+    const current = stateRef.current;
+    const isSameScenario = incoming.loadedFileName === current.loadedFileName;
+    const isStaleRunningTick =
+      incoming.status === "RUNNING" &&
+      current.status === "RUNNING" &&
+      isSameScenario &&
+      incoming.tick < current.tick;
+
+    if (isStaleRunningTick) return;
     const next = serializeState(incoming);
     stateRef.current = next;
     saveSession(next);
@@ -468,6 +479,12 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       .on("broadcast", { event: "tick_update" }, ({ payload }) => {
         const incoming = payload as GameState;
         if (!incoming || typeof incoming !== "object") return;
+        const shouldIgnoreAdminEcho =
+          isAdminPath &&
+          stateRef.current.status === "RUNNING" &&
+          !stateRef.current.paused &&
+          incoming.status === "RUNNING";
+        if (shouldIgnoreAdminEcho) return;
         syncState(incoming);
         externalBroadcastListenersRef.current.forEach((cb) => cb(incoming));
       })
@@ -530,7 +547,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       ch.unsubscribe();
       channelRef.current = null;
     };
-  }, [applyHardResetLocal, setStateAndPersist, syncState]);
+  }, [applyHardResetLocal, isAdminPath, setStateAndPersist, syncState]);
 
   // ── Public actions ────────────────────────────────────────────────────────
 
@@ -577,12 +594,15 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setStateAndPersist((s) => {
         const clampedRate = Math.min(10, Math.max(1, Math.round(tickRate)));
         const next = { ...s, tickRate: clampedRate };
-        void persistSimulationState(next);
+        void persistSimulationState({
+          ...next,
+          injectResponses,
+        } as PersistedStateWithResponses);
         void sendBroadcast("tick_update", next);
         return next;
       });
     },
-    [sendBroadcast, setStateAndPersist]
+    [injectResponses, sendBroadcast, setStateAndPersist]
   );
 
   const setGlobalTension = useCallback(
@@ -594,12 +614,15 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
           resources: updateTensionKey(s.resources, clamped),
           globalTension: clamped,
         };
-        void persistSimulationState(next);
+        void persistSimulationState({
+          ...next,
+          injectResponses,
+        } as PersistedStateWithResponses);
         void sendBroadcast("tick_update", next);
         return next;
       });
     },
-    [sendBroadcast, setStateAndPersist]
+    [injectResponses, sendBroadcast, setStateAndPersist]
   );
 
   const togglePaused = useCallback(() => {
@@ -610,33 +633,28 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         paused: nextPaused,
         status: (nextPaused ? "STOPPED" : "RUNNING") as GameState["status"],
       };
-      void persistSimulationState(next);
+      void persistSimulationState({
+        ...next,
+        injectResponses,
+      } as PersistedStateWithResponses);
       void sendBroadcast("tick_update", next);
       return next;
     });
-  }, [sendBroadcast, setStateAndPersist]);
+  }, [injectResponses, sendBroadcast, setStateAndPersist]);
 
   const stopSimulation = useCallback(async () => {
-    const baseline = loadBaseline();
-    const next = baseline
-      ? {
-          ...baseline,
-          tick: 0,
-          paused: true,
-          status: "STOPPED" as const,
-          injects: [],
-          deploymentRequests: [],
-          activeRefuels: [],
-          units: spawnUnitsFromAssets(baseline.assets, baseline.bases),
-        }
-      : buildHardResetState();
+    const next = buildHardResetState();
 
     stateRef.current = next;
     saveSession(next);
     setState(next);
+    setInjectResponses({});
     await Promise.allSettled([
       clearSimulationState(),
-      persistSimulationState(next),
+      persistSimulationState({
+        ...next,
+        injectResponses: {},
+      } as PersistedStateWithResponses),
       sendBroadcast("hard_reset", next),
     ]);
   }, [sendBroadcast]);
@@ -718,6 +736,16 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         submittedAt,
       };
       setInjectResponses((prev) => ({ ...prev, [triggerId]: record }));
+      const nextForPersistence = {
+        ...stateRef.current,
+        injectResponses: {
+          ...((stateRef.current as GameState & { injectResponses?: unknown }).injectResponses as
+            | Record<string, InjectResponseRecord>
+            | undefined),
+          [triggerId]: record,
+        },
+      } as GameState;
+      void persistSimulationState(nextForPersistence);
       void sendBroadcast("response_submitted", {
         triggerId,
         responseType,

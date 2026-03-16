@@ -77,6 +77,8 @@ export function AdminJsonDropzone() {
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) void handleFile(file);
+              // Allow selecting the same file again on the next open.
+              e.currentTarget.value = "";
             }}
           />
         </div>

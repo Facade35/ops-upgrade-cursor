@@ -157,29 +157,52 @@ function computeNextTickState(state: GameState): GameState {
 export function useAdminTickEngine(persistEveryTicks = 50) {
   const pathname = usePathname();
   const isAdmin = pathname === "/admin";
-  const { state, syncState, broadcastState } = useRemoteGameState();
+  const { state, syncState, broadcastState, injectResponses } = useRemoteGameState();
   const stateRef = useRef(state);
+  const intervalSeqRef = useRef(0);
   stateRef.current = state;
 
   useEffect(() => {
     if (!isAdmin || !state.loadedFileName || state.paused) return;
 
+    const intervalSeq = ++intervalSeqRef.current;
     const interval = window.setInterval(() => {
-      const next = computeNextTickState(stateRef.current);
+      const prev = stateRef.current;
+      const beforeTick = prev.tick;
+      const beforeInjectTopId = prev.injects[0]?.id ?? null;
+      const next = computeNextTickState(prev);
+      const afterInjectTopId = next.injects[0]?.id ?? null;
+      const injectChanged =
+        next.injects.length !== prev.injects.length ||
+        beforeInjectTopId !== afterInjectTopId;
       stateRef.current = next;
       syncState(next);
       broadcastState(next);
+      if (injectChanged) {
+        const nextWithResponses = {
+          ...next,
+          injectResponses,
+        } as GameState;
+        void persistSimulationState(nextWithResponses);
+      }
       if (next.tick > 0 && next.tick % persistEveryTicks === 0) {
-        void persistSimulationState(next);
+        const nextWithResponses = {
+          ...next,
+          injectResponses,
+        } as GameState;
+        void persistSimulationState(nextWithResponses);
       }
     }, Math.max(100, 1000 / state.tickRate));
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [
     isAdmin,
     state.loadedFileName,
     state.paused,
     state.tickRate,
+    injectResponses,
     persistEveryTicks,
     syncState,
     broadcastState,
