@@ -1,12 +1,6 @@
-# Operation Rising Tide - JADC2 Simulation Sandbox
-
-Operation Rising Tide is a high-fidelity, Next.js web-based Command and Control (C2) simulation built for a 14-cadet team. The platform stress-tests logistics planning, delegation quality, and tactical decision-making inside a Pacific theater scenario through an admin-led, shared operational picture.
-
----
-
 ## 1) Project Title & Overview
 
-**Title:** Operation Rising Tide - JADC2 Simulation Sandbox  
+**Title:** JADC2 Simulation Sandbox  
 **Overview:** A high-fidelity, Next.js web-based Command and Control (C2) simulation designed for a 14-cadet team. It tests logistics, delegation, and tactical decision-making during a Pacific theater scenario.
 
 ---
