@@ -38,7 +38,7 @@ export function TabsList({
   return (
     <div
       className={cn(
-        "inline-flex h-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/50 p-1 text-zinc-500",
+        "inline-flex h-10 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
         className
       )}
       {...props}
@@ -70,8 +70,8 @@ export function TabsTrigger({
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         isActive
-          ? "bg-zinc-800 text-white font-semibold border border-zinc-700 shadow-sm"
-          : "text-zinc-500 hover:text-zinc-300",
+          ? "bg-accent text-accent-foreground font-semibold shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
         className
       )}
       {...props}
