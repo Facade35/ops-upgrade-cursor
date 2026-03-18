@@ -1,0 +1,158 @@
+{
+  "scenario_metadata": {
+    "title": "Operation Red Skyline - First Slice",
+    "description": "First-slice red-air test with hostile spawn, ISR/Strike detection, and no-fly-zone enforcement.",
+    "tick_rate": 1,
+    "starting_location": { "lat": 14.0, "lng": 114.0 }
+  },
+  "resources": {
+    "Tension": 25,
+    "JP8 Fuel (gal)": 900000,
+    "MREs": 18000
+  },
+  "bases": [
+    {
+      "id": "base_utapao",
+      "label": "U-Tapao Rayong-Pattaya AB",
+      "lat": 12.6775,
+      "lng": 101.0044,
+      "fuel_reserves": 1320860,
+      "sidc": "SFGPE---------"
+    },
+    {
+      "id": "base_basa",
+      "label": "Cesar Basa AB, Philippines",
+      "lat": 14.9856,
+      "lng": 120.4931,
+      "fuel_reserves": 250000,
+      "sidc": "SFGPE---------"
+    }
+  ],
+  "assets": [
+    {
+      "id": "p8",
+      "label": "P-8 Poseidon",
+      "sidc": "SFAPMS----------",
+      "quantity": 1,
+      "home_base": "base_basa",
+      "role": "ISR",
+      "max_fuel": 30000,
+      "fuel_burn_rate": 10,
+      "speed": 0.7,
+      "capacity": 0,
+      "sensor_range_km": 420,
+      "detection_strength": 90,
+      "side": "BLUE"
+    },
+    {
+      "id": "f15e",
+      "label": "F-15E Strike Eagle",
+      "sidc": "SFAPMF----------",
+      "quantity": 2,
+      "home_base": "base_utapao",
+      "role": "FIGHTER",
+      "max_fuel": 18000,
+      "fuel_burn_rate": 18,
+      "speed": 1.8,
+      "capacity": 0,
+      "sensor_range_km": 150,
+      "detection_strength": 70,
+      "side": "BLUE"
+    }
+  ],
+  "hostile_bases": [
+    {
+      "id": "red_woody",
+      "label": "Woody Island Air Base",
+      "lat": 16.833,
+      "lng": 112.333,
+      "sidc": "SHGPE---------",
+      "side": "RED"
+    }
+  ],
+  "hostile_groups": [
+    {
+      "id": "red_cap_alpha",
+      "label": "J-11 CAP Alpha",
+      "side": "RED",
+      "home_base": "red_woody",
+      "quantity": 2,
+      "role": "FIGHTER",
+      "sidc": "SHAPMF----------",
+      "max_fuel": 15000,
+      "fuel_burn_rate": 12,
+      "speed": 1.4,
+      "sensor_range_km": 100,
+      "engagement_range_km": 45,
+      "combat_rating": 65,
+      "signature": 45,
+      "route": [
+        { "lat": 15.1, "lng": 113.7 },
+        { "lat": 16.0, "lng": 114.4 },
+        { "lat": 17.0, "lng": 113.4 }
+      ]
+    }
+  ],
+  "no_fly_zones": [
+    {
+      "id": "nfz_paracel",
+      "label": "Paracel Temporary NFZ",
+      "shape": "CIRCLE",
+      "center_lat": 16.0,
+      "center_lng": 114.0,
+      "radius_km": 240,
+      "active": false,
+      "applies_to": ["RED"],
+      "violation_policy": "WARN_THEN_DESTROY",
+      "warning_grace_ticks": 2
+    }
+  ],
+  "events": [
+    {
+      "id": "ev_red_launch",
+      "tick": 10,
+      "note": "Red CAP launches from Woody Island.",
+      "injects": { "Tension": 4 },
+      "actions": [
+        { "type": "SPAWN_HOSTILE_GROUP", "group_id": "red_cap_alpha" }
+      ]
+    },
+    {
+      "id": "ev_nfz_activate",
+      "tick": 20,
+      "note": "No-fly zone declared over the Paracels.",
+      "injects": { "Tension": 6 },
+      "actions": [
+        { "type": "ACTIVATE_ZONE", "zone_id": "nfz_paracel", "active": true }
+      ]
+    }
+  ],
+  "inject_triggers": [
+    {
+      "tick": 9,
+      "type": "INTEL",
+      "title": "Possible Red Air Sortie",
+      "content": "ISR indicates hostile fighters may launch from Woody Island in the next few ticks.",
+      "lat": 16.833,
+      "lng": 112.333,
+      "priority": "HIGH",
+      "required_response": "MFR",
+      "deadline_tick": 18,
+      "map_visible": true,
+      "sidc": "GFGPOAI----X"
+    },
+    {
+      "tick": 20,
+      "type": "OPS",
+      "title": "NFZ Enforcement Order",
+      "content": "Temporary NFZ is active in the Paracels. Monitor for violations and report enforcement status.",
+      "lat": 16.0,
+      "lng": 114.0,
+      "priority": "CRITICAL",
+      "required_response": "COA",
+      "deadline_tick": 30,
+      "map_visible": true,
+      "sidc": "GFGPOAO----X"
+    }
+  ]
+}

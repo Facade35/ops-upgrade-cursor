@@ -5,8 +5,13 @@ import { createContext, type ReactNode, useContext, useEffect, useMemo, useReduc
 import type {
   DeploymentRequest,
   GameDefinition,
+  HostileBase,
+  HostileGroupDefinition,
+  HostileUnit,
   InjectLog,
   InjectTrigger,
+  KnownTrack,
+  NoFlyZone,
   ResourceMap,
   SpawnedUnit,
 } from "@/types/game";
@@ -20,6 +25,11 @@ export interface GameState {
   events: GameDefinition["events"];
   injects: InjectLog[];
   injectTriggers: InjectTrigger[];
+  hostileBases: HostileBase[];
+  hostileGroups: HostileGroupDefinition[];
+  hostileUnits: HostileUnit[];
+  knownTracks: KnownTrack[];
+  noFlyZones: NoFlyZone[];
   tick: number;
   tickRate: number;
   paused: boolean;
@@ -62,6 +72,11 @@ const initialState: GameState = {
   events: [],
   injects: [],
   injectTriggers: [],
+  hostileBases: [],
+  hostileGroups: [],
+  hostileUnits: [],
+  knownTracks: [],
+  noFlyZones: [],
   tick: 0,
   tickRate: 1,
   paused: false,
@@ -122,6 +137,11 @@ function reducer(state: GameState, action: Action): GameState {
         events: action.payload.definition.events,
         injects: [],
         injectTriggers: action.payload.definition.injectTriggers ?? [],
+        hostileBases: action.payload.definition.hostileBases ?? [],
+        hostileGroups: action.payload.definition.hostileGroups ?? [],
+        hostileUnits: [],
+        knownTracks: [],
+        noFlyZones: action.payload.definition.noFlyZones ?? [],
         tick: 0,
         paused: false,
         status: "RUNNING" as const,

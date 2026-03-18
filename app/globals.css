@@ -92,3 +92,32 @@
   background-size: 100% 4px;
   z-index: 10;
 }
+
+/* Deterministic tab styling (non-utility) to ensure themed rendering. */
+.op-tabs-list {
+  border: 1px solid #3f3f46;
+  border-radius: 10px;
+  background-color: #09090b;
+  color: #a1a1aa;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.op-tabs-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background-color: transparent;
+  color: #a1a1aa;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.op-tabs-trigger:hover {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
+.op-tabs-trigger.is-active {
+  border-color: #52525b;
+  background-color: #27272a;
+  color: #fafafa;
+}

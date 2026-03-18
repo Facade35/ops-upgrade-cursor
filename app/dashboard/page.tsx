@@ -39,7 +39,8 @@ function DashboardContent() {
                   {state.paused ? "Paused" : "Running"}
                 </Badge>
                 <Badge variant="outline">Tick {state.tick}</Badge>
-                <Badge variant="outline">Units {state.units.length}</Badge>
+                <Badge variant="outline">Blue Units {state.units.length}</Badge>
+                <Badge variant="outline">Tracks {state.knownTracks.length}</Badge>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Read-only view. Intel and resources update in real time from the
@@ -48,16 +49,14 @@ function DashboardContent() {
             </div>
             <TabsList>
               <TabsTrigger value="map">Tactical Map</TabsTrigger>
-              <TabsTrigger value="actions">
-                <span className="inline-flex items-center gap-2">
-                  Actions
-                  {actionsBadgeCount > 0 && (
-                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-4 text-white">
-                      {actionsBadgeCount}
-                    </span>
-                  )}
-                </span>
-              </TabsTrigger>
+              <span className="relative inline-flex">
+                <TabsTrigger value="actions">Actions</TabsTrigger>
+                {actionsBadgeCount > 0 && (
+                  <span className="pointer-events-none absolute left-full top-0 z-10 inline-flex h-5 min-w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-500 bg-zinc-800 px-1 text-[10px] font-semibold leading-none text-zinc-100">
+                    {actionsBadgeCount}
+                  </span>
+                )}
+              </span>
               <TabsTrigger value="deployments">
                 <span className="inline-flex items-center gap-2">
                   Deployments

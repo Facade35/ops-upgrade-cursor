@@ -8,6 +8,7 @@ import { useRemoteGameState } from "@/components/remote-game-state-provider";
 import {
   applyFuelTick,
   applyMovementTick,
+  distanceKm,
   isWithinAoe,
 } from "@/lib/simulation-units";
 import { persistSimulationState } from "@/lib/supabase";
@@ -89,6 +90,290 @@ function applyActiveRefuels(
   return { units: nextUnits, activeRefuels: persisted };
 }
 
+function applyHostileMovementTick(
+  hostileUnits: GameState["hostileUnits"]
+): GameState["hostileUnits"] {
+  return hostileUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE") return unit;
+    const route = unit.route ?? [];
+    let routeIndex = unit.route_index ?? 0;
+    let targetLat =
+      typeof unit.target_lat === "number" ? unit.target_lat : undefined;
+    let targetLng =
+      typeof unit.target_lng === "number" ? unit.target_lng : undefined;
+
+    if (
+      route.length > 0 &&
+      (typeof targetLat !== "number" || typeof targetLng !== "number")
+    ) {
+      const waypoint = route[Math.max(0, Math.min(route.length - 1, routeIndex))];
+      targetLat = waypoint.lat;
+      targetLng = waypoint.lng;
+    }
+
+    if (typeof targetLat !== "number" || typeof targetLng !== "number") {
+      return unit;
+    }
+
+    const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
+    if (remaining <= 0) return unit;
+    const stepKm = Math.max(0, unit.speed);
+    if (stepKm <= 0) return unit;
+
+    if (stepKm >= remaining) {
+      let nextIndex = routeIndex;
+      let nextTargetLat = targetLat;
+      let nextTargetLng = targetLng;
+      if (route.length > 0) {
+        nextIndex = (routeIndex + 1) % route.length;
+        nextTargetLat = route[nextIndex].lat;
+        nextTargetLng = route[nextIndex].lng;
+      }
+      return {
+        ...unit,
+        lat: targetLat,
+        lng: targetLng,
+        route_index: route.length > 0 ? nextIndex : unit.route_index,
+        target_lat: nextTargetLat,
+        target_lng: nextTargetLng,
+      };
+    }
+
+    const ratio = stepKm / remaining;
+    return {
+      ...unit,
+      lat: unit.lat + (targetLat - unit.lat) * ratio,
+      lng: unit.lng + (targetLng - unit.lng) * ratio,
+      target_lat: targetLat,
+      target_lng: targetLng,
+    };
+  });
+}
+
+function applyHostileFuelTick(
+  hostileUnits: GameState["hostileUnits"]
+): GameState["hostileUnits"] {
+  return hostileUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE") return unit;
+    return {
+      ...unit,
+      current_fuel: Math.max(0, unit.current_fuel - unit.fuel_burn_rate),
+    };
+  });
+}
+
+function spawnHostileUnitsForGroup(
+  state: GameState,
+  groupId: string
+): GameState["hostileUnits"] {
+  const group = state.hostileGroups.find((candidate) => candidate.id === groupId);
+  if (!group) return state.hostileUnits;
+  const existing = state.hostileUnits.some((unit) => unit.group_id === group.id);
+  if (existing) return state.hostileUnits;
+  const base = state.hostileBases.find((candidate) => candidate.id === group.home_base);
+  const spawnLat = base?.lat ?? 0;
+  const spawnLng = base?.lng ?? 0;
+  const firstWaypoint = group.route?.[0];
+  const nextUnits = [...state.hostileUnits];
+  const quantity = Math.max(1, group.quantity);
+
+  for (let i = 0; i < quantity; i += 1) {
+    nextUnits.push({
+      id: `${group.id}-${i + 1}`,
+      group_id: group.id,
+      label: `${group.label} ${i + 1}`,
+      side: group.side,
+      status: "AIRBORNE",
+      role: group.role,
+      sidc: group.sidc,
+      home_base: group.home_base,
+      lat: spawnLat,
+      lng: spawnLng,
+      target_lat: firstWaypoint?.lat,
+      target_lng: firstWaypoint?.lng,
+      route: group.route,
+      route_index: firstWaypoint ? 0 : undefined,
+      current_fuel: group.max_fuel,
+      max_fuel: group.max_fuel,
+      fuel_burn_rate: group.fuel_burn_rate,
+      speed: group.speed,
+      sensor_range_km: group.sensor_range_km,
+      engagement_range_km: group.engagement_range_km,
+      combat_rating: group.combat_rating,
+      signature: group.signature,
+    });
+  }
+  return nextUnits;
+}
+
+function applyEventActions(
+  state: GameState,
+  firedEvents: GameState["events"],
+  tick: number,
+  now: number
+): { state: GameState; logs: GameState["injects"] } {
+  if (!firedEvents.some((event) => (event.actions ?? []).length > 0)) {
+    return { state, logs: [] };
+  }
+  let nextState = state;
+  const logs: GameState["injects"] = [];
+
+  for (const event of firedEvents) {
+    for (const action of event.actions ?? []) {
+      if (action.type === "SPAWN_HOSTILE_GROUP") {
+        const hostileUnits = spawnHostileUnitsForGroup(nextState, action.group_id);
+        if (hostileUnits !== nextState.hostileUnits) {
+          nextState = { ...nextState, hostileUnits };
+          logs.push({
+            id: `${now}-spawn-${action.group_id}-${Math.random().toString(36).slice(2, 8)}`,
+            tick,
+            resource: "intel",
+            amount: 1,
+            note: `Hostile group ${action.group_id} launched`,
+            at: new Date(now).toISOString(),
+          });
+        }
+      } else if (action.type === "ACTIVATE_ZONE") {
+        const noFlyZones = nextState.noFlyZones.map((zone) =>
+          zone.id === action.zone_id
+            ? { ...zone, active: action.active ?? true }
+            : zone
+        );
+        nextState = { ...nextState, noFlyZones };
+        logs.push({
+          id: `${now}-zone-${action.zone_id}-${Math.random().toString(36).slice(2, 8)}`,
+          tick,
+          resource: "intel",
+          amount: 1,
+          note: `No-fly zone ${action.zone_id} activated`,
+          at: new Date(now).toISOString(),
+        });
+      }
+    }
+  }
+
+  return { state: nextState, logs };
+}
+
+function enforceNoFlyZones(
+  hostileUnits: GameState["hostileUnits"],
+  zones: GameState["noFlyZones"],
+  tick: number,
+  now: number
+): { hostileUnits: GameState["hostileUnits"]; logs: GameState["injects"] } {
+  const activeZones = zones.filter((zone) => zone.active);
+  if (activeZones.length === 0) return { hostileUnits, logs: [] };
+
+  const logs: GameState["injects"] = [];
+  const nextUnits = hostileUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE") return unit;
+    let nextUnit = { ...unit };
+    let inViolation = false;
+
+    for (const zone of activeZones) {
+      if (!zone.applies_to.includes(unit.side)) continue;
+      const inside = isWithinAoe(
+        zone.center_lat,
+        zone.center_lng,
+        unit.lat,
+        unit.lng,
+        zone.radius_km
+      );
+      if (!inside) continue;
+      inViolation = true;
+
+      if (zone.violation_policy === "WARN_THEN_DESTROY") {
+        if (typeof nextUnit.first_warning_tick !== "number") {
+          nextUnit.first_warning_tick = tick;
+          logs.push({
+            id: `${now}-warn-${unit.id}-${zone.id}-${Math.random().toString(36).slice(2, 8)}`,
+            tick,
+            resource: "intel",
+            amount: 1,
+            note: `${unit.label} warned for violating ${zone.label}`,
+            at: new Date(now).toISOString(),
+          });
+          continue;
+        }
+        const graceTicks = Math.max(0, zone.warning_grace_ticks ?? 2);
+        if (tick - nextUnit.first_warning_tick >= graceTicks) {
+          nextUnit = {
+            ...nextUnit,
+            status: "DESTROYED",
+          };
+          logs.push({
+            id: `${now}-destroy-${unit.id}-${zone.id}-${Math.random().toString(36).slice(2, 8)}`,
+            tick,
+            resource: "intel",
+            amount: 1,
+            note: `${unit.label} destroyed after no-fly zone violation`,
+            at: new Date(now).toISOString(),
+          });
+          break;
+        }
+      }
+    }
+
+    if (!inViolation) {
+      nextUnit.first_warning_tick = undefined;
+    }
+    return nextUnit;
+  });
+
+  return { hostileUnits: nextUnits, logs };
+}
+
+function rebuildKnownTracks(
+  units: GameState["units"],
+  hostileUnits: GameState["hostileUnits"],
+  tick: number
+): GameState["knownTracks"] {
+  const detectorUnits = units.filter(
+    (unit) =>
+      unit.status === "AIRBORNE" &&
+      (unit.mission_type === "ISR" || unit.mission_type === "Strike")
+  );
+  if (detectorUnits.length === 0) return [];
+
+  const tracks: GameState["knownTracks"] = [];
+  for (const hostile of hostileUnits) {
+    if (hostile.status !== "AIRBORNE") continue;
+    let detectedByUnitId: string | null = null;
+    let confidence = 0;
+
+    for (const detector of detectorUnits) {
+      const range = Math.max(
+        0,
+        detector.sensor_range_km ?? detector.aoe_radius ?? 0
+      );
+      if (range <= 0) continue;
+      if (!isWithinAoe(detector.lat, detector.lng, hostile.lat, hostile.lng, range)) {
+        continue;
+      }
+      const baseConfidence = detector.detection_strength ?? 70;
+      const stealthPenalty = hostile.signature ?? 35;
+      confidence = Math.max(30, Math.min(100, baseConfidence - stealthPenalty + 30));
+      detectedByUnitId = detector.id;
+      break;
+    }
+
+    if (!detectedByUnitId) continue;
+    tracks.push({
+      id: `track-${hostile.id}`,
+      truth_unit_id: hostile.id,
+      label: `Track ${hostile.label}`,
+      lat: hostile.lat,
+      lng: hostile.lng,
+      side: hostile.side,
+      classification: "HOSTILE_AIR",
+      last_seen_tick: tick,
+      detected_by_unit_id: detectedByUnitId,
+      confidence,
+    });
+  }
+  return tracks;
+}
+
 function computeNextTickState(state: GameState): GameState {
   const now = Date.now();
   const nextTick = state.tick + 1;
@@ -111,23 +396,22 @@ function computeNextTickState(state: GameState): GameState {
   });
 
   const movedUnits = applyMovementTick(launchedUnits);
+  const movedHostileUnits = applyHostileMovementTick(state.hostileUnits);
   const firedEvents = state.events.filter((event) => event.tick === nextTick);
   const fuelStep = applyFuelTick(movedUnits, state.bases);
+  const fueledHostileUnits = applyHostileFuelTick(movedHostileUnits);
   const doctrineStep = applyActiveRefuels(fuelStep.units, state.activeRefuels);
+  let workingState: GameState = {
+    ...state,
+    tick: nextTick,
+    units: doctrineStep.units,
+    hostileUnits: fueledHostileUnits,
+    bases: fuelStep.bases,
+    activeRefuels: doctrineStep.activeRefuels,
+  };
 
-  if (firedEvents.length === 0) {
-    return {
-      ...state,
-      tick: nextTick,
-      units: doctrineStep.units,
-      bases: fuelStep.bases,
-      activeRefuels: doctrineStep.activeRefuels,
-      globalTension: deriveGlobalTension(state.resources, state.globalTension),
-    };
-  }
-
-  let nextResources = state.resources;
-  const nextInjects = [];
+  let nextResources = workingState.resources;
+  const nextInjects: GameState["injects"] = [];
   for (const event of firedEvents) {
     nextResources = applyEventInjects(nextResources, event.injects);
     for (const [resource, amount] of Object.entries(event.injects)) {
@@ -142,14 +426,35 @@ function computeNextTickState(state: GameState): GameState {
     }
   }
 
-  return {
-    ...state,
-    tick: nextTick,
+  workingState = {
+    ...workingState,
     resources: nextResources,
-    units: doctrineStep.units,
-    bases: fuelStep.bases,
-    injects: [...nextInjects, ...state.injects].slice(0, MAX_INJECT_LOGS),
-    activeRefuels: doctrineStep.activeRefuels,
+  };
+  const eventActionStep = applyEventActions(workingState, firedEvents, nextTick, now);
+  workingState = eventActionStep.state;
+
+  const nfzStep = enforceNoFlyZones(
+    workingState.hostileUnits,
+    workingState.noFlyZones,
+    nextTick,
+    now
+  );
+  const knownTracks = rebuildKnownTracks(
+    workingState.units,
+    nfzStep.hostileUnits,
+    nextTick
+  );
+
+  return {
+    ...workingState,
+    hostileUnits: nfzStep.hostileUnits,
+    knownTracks,
+    injects: [
+      ...nfzStep.logs,
+      ...eventActionStep.logs,
+      ...nextInjects,
+      ...state.injects,
+    ].slice(0, MAX_INJECT_LOGS),
     globalTension: deriveGlobalTension(nextResources, state.globalTension),
   };
 }

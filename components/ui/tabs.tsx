@@ -35,12 +35,13 @@ export function TabsList({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
+  const computedClassName = cn(
+    "op-tabs-list inline-flex min-h-10 items-center justify-center gap-1 p-1",
+    className
+  );
   return (
     <div
-      className={cn(
-        "inline-flex h-10 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
-        className
-      )}
+      className={computedClassName}
       {...props}
     />
   );
@@ -62,18 +63,17 @@ export function TabsTrigger({
     throw new Error("TabsTrigger must be used within Tabs");
   }
   const isActive = ctx.value === value;
+  const computedClassName = cn(
+    "op-tabs-trigger inline-flex min-h-8 items-center justify-center whitespace-nowrap px-3 py-1.5 text-sm font-medium tracking-wide ring-offset-background transition-colors duration-150",
+    isActive ? "is-active" : "",
+    className
+  );
 
   return (
     <button
       type="button"
       onClick={() => ctx.setValue(value)}
-      className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        isActive
-          ? "bg-accent text-accent-foreground font-semibold shadow-sm"
-          : "text-muted-foreground hover:text-foreground",
-        className
-      )}
+      className={computedClassName}
       {...props}
     >
       {children}

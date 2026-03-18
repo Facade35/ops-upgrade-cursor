@@ -35,6 +35,9 @@ export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUni
         departure_tick: undefined,
         mission_type: undefined,
         completed_inject_ids: [],
+        side: asset.side,
+        sensor_range_km: asset.sensor_range_km,
+        detection_strength: asset.detection_strength,
       });
     }
   }

@@ -43,8 +43,9 @@ function AdminContent() {
                 <Badge variant="secondary">
                   {state.paused ? "Paused" : "Running"}
                 </Badge>
-                <Badge variant="outline">Tick {state.tick}</Badge>
-                <Badge variant="outline">Units {state.units.length}</Badge>
+                <Badge variant="outline">Blue Units {state.units.length}</Badge>
+                <Badge variant="outline">Red Air {state.hostileUnits.length}</Badge>
+                <Badge variant="outline">Tracks {state.knownTracks.length}</Badge>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Upload scenario JSON and control the master game tick. Cadets

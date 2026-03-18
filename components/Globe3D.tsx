@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import ms from "milsymbol";
 import * as THREE from "three";
 
@@ -24,12 +25,15 @@ type AoeMeshDatum = {
   lat: number;
   lng: number;
   radiusKm: number;
+  kind: "AOE" | "NFZ";
   role?: string;
   selected: boolean;
   altitude: number;
 };
 
 export default function Globe3D() {
+  const pathname = usePathname();
+  const isAdminView = pathname === "/admin";
   const { state } = useGameState();
   const { selectedUnitId } = useRemoteGameState();
   const [size, setSize] = useState({ width: 1200, height: 720 });
@@ -39,14 +43,34 @@ export default function Globe3D() {
     (point) => point.tick == null || point.tick <= state.tick
   );
   const airborneUnits = state.units.filter((unit) => unit.status === "AIRBORNE");
+  const hostileAirborneUnits = state.hostileUnits.filter(
+    (unit) => unit.status === "AIRBORNE"
+  );
+  const activeNoFlyZones = state.noFlyZones.filter((zone) => zone.active);
   const globeMarkers = [
     ...state.bases.map((base) => ({
       ...base,
       markerType: "BASE" as const,
     })),
+    ...(isAdminView
+      ? state.hostileBases.map((base) => ({
+          ...base,
+          markerType: "HOSTILE_BASE" as const,
+        }))
+      : []),
     ...airborneUnits.map((unit) => ({
       ...unit,
       markerType: "UNIT" as const,
+    })),
+    ...(isAdminView
+      ? hostileAirborneUnits.map((unit) => ({
+          ...unit,
+          markerType: "HOSTILE_UNIT" as const,
+        }))
+      : []),
+    ...state.knownTracks.map((track) => ({
+      ...track,
+      markerType: "TRACK" as const,
     })),
     ...pointsData.map((point) => ({
       ...point,
@@ -60,6 +84,8 @@ export default function Globe3D() {
     if (role === "TRANSPORT") return "#ffff00";
     return "#c8c8c8";
   };
+
+  const zoneColor = "#ff3b30";
 
   const toWorldRadius = (radiusKm: number): number => {
     const globeRadius = globeRef.current?.getGlobeRadius?.() ?? 100;
@@ -100,15 +126,17 @@ export default function Globe3D() {
     }
 
     const color = roleColor(datum.role);
-    (fill.material as THREE.MeshBasicMaterial).color.set(color);
-    (fill.material as THREE.MeshBasicMaterial).opacity = datum.selected ? 0.2 : 0.15;
-    (border.material as THREE.LineBasicMaterial).color.set(color);
+    const nextColor = datum.kind === "NFZ" ? zoneColor : color;
+    (fill.material as THREE.MeshBasicMaterial).color.set(nextColor);
+    (fill.material as THREE.MeshBasicMaterial).opacity =
+      datum.kind === "NFZ" ? 0.08 : datum.selected ? 0.2 : 0.15;
+    (border.material as THREE.LineBasicMaterial).color.set(nextColor);
     positionAoeMesh(group, datum);
   };
 
   const createAoeMeshObject = (datum: AoeMeshDatum): THREE.Object3D => {
     const worldRadius = toWorldRadius(datum.radiusKm);
-    const color = roleColor(datum.role);
+    const color = datum.kind === "NFZ" ? zoneColor : roleColor(datum.role);
     const group = new THREE.Group();
 
     const fill = new THREE.Mesh(
@@ -116,7 +144,7 @@ export default function Globe3D() {
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: datum.selected ? 0.2 : 0.15,
+        opacity: datum.kind === "NFZ" ? 0.08 : datum.selected ? 0.2 : 0.15,
         side: THREE.DoubleSide,
         depthWrite: false,
       })
@@ -152,6 +180,7 @@ export default function Globe3D() {
         lat: unit.lat,
         lng: unit.lng,
         radiusKm: unit.aoe_radius ?? 0,
+        kind: "AOE" as const,
         role: unit.role,
         selected: selectedUnitId === unit.id,
         altitude: AIRBORNE_OVERLAY_ALTITUDE,
@@ -160,6 +189,7 @@ export default function Globe3D() {
       existing.lat = unit.lat;
       existing.lng = unit.lng;
       existing.radiusKm = unit.aoe_radius ?? 0;
+      existing.kind = "AOE";
       existing.role = unit.role;
       existing.selected = selectedUnitId === unit.id;
       existing.altitude = AIRBORNE_OVERLAY_ALTITUDE;
@@ -168,9 +198,30 @@ export default function Globe3D() {
       return existing;
     });
 
+    for (const zone of activeNoFlyZones) {
+      const id = `zone-${zone.id}`;
+      const existing = aoeDatumByIdRef.current.get(id) ?? {
+        id,
+        lat: zone.center_lat,
+        lng: zone.center_lng,
+        radiusKm: zone.radius_km,
+        kind: "NFZ" as const,
+        selected: false,
+        altitude: 0.015,
+      };
+      existing.lat = zone.center_lat;
+      existing.lng = zone.center_lng;
+      existing.radiusKm = zone.radius_km;
+      existing.kind = "NFZ";
+      existing.selected = false;
+      existing.altitude = 0.015;
+      nextById.set(id, existing);
+      nextData.push(existing);
+    }
+
     aoeDatumByIdRef.current = nextById;
     return nextData;
-  }, [selectedUnitId, state.units]);
+  }, [activeNoFlyZones, selectedUnitId, state.units]);
 
   useEffect(() => {
     const update = () =>
@@ -222,6 +273,17 @@ export default function Globe3D() {
                   el.title = d.label ?? d.id ?? "Base";
                   return el;
                 }
+                if (d.markerType === "HOSTILE_BASE") {
+                  const symbol = new ms.Symbol(d.sidc ?? "SHGPE---------", {
+                    size: 24,
+                  });
+                  el.innerHTML = symbol.asSVG();
+                  el.style.width = "24px";
+                  el.style.height = "24px";
+                  el.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.6))";
+                  el.title = d.label ?? d.id ?? "Hostile Base";
+                  return el;
+                }
                 if (d.markerType === "UNIT") {
                   const symbol = new ms.Symbol(d.sidc ?? "SFAPMF----------", {
                     size: 18,
@@ -231,6 +293,27 @@ export default function Globe3D() {
                   el.style.height = "18px";
                   el.style.filter = "drop-shadow(0 0 4px rgba(0,255,65,0.6))";
                   el.title = d.label ?? d.id ?? "Unit";
+                  return el;
+                }
+                if (d.markerType === "HOSTILE_UNIT") {
+                  const symbol = new ms.Symbol(d.sidc ?? "SHAPMF----------", {
+                    size: 18,
+                  });
+                  el.innerHTML = symbol.asSVG();
+                  el.style.width = "18px";
+                  el.style.height = "18px";
+                  el.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.9))";
+                  el.title = d.label ?? d.id ?? "Hostile Unit";
+                  return el;
+                }
+                if (d.markerType === "TRACK") {
+                  el.style.width = "12px";
+                  el.style.height = "12px";
+                  el.style.borderRadius = "50%";
+                  el.style.border = "2px solid #ff3b30";
+                  el.style.backgroundColor = "rgba(255,59,48,0.2)";
+                  el.style.boxShadow = "0 0 8px rgba(255,59,48,0.75)";
+                  el.title = `${d.label ?? "Hostile Track"} · ${d.confidence ?? 0}%`;
                   return el;
                 }
 

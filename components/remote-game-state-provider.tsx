@@ -15,7 +15,9 @@ import type {
   DeploymentMissionType,
   DeploymentRequest,
   GameDefinition,
+  HostileUnit,
   InjectTrigger,
+  NoFlyZone,
 } from "@/types/game";
 import type { GameState } from "@/components/game-state-provider";
 import {
@@ -49,6 +51,11 @@ const defaultState: GameState = {
   events: [],
   injects: [],
   injectTriggers: [],
+  hostileBases: [],
+  hostileGroups: [],
+  hostileUnits: [],
+  knownTracks: [],
+  noFlyZones: [],
   tick: 0,
   tickRate: 1,
   paused: false,
@@ -68,6 +75,11 @@ export function buildHardResetState(): GameState {
     assets: [],
     injectTriggers: [],
     bases: [],
+    hostileBases: [],
+    hostileGroups: [],
+    hostileUnits: [],
+    knownTracks: [],
+    noFlyZones: [],
     tick: 0,
     status: "UNINITIALIZED",
     globalTension: 20,
@@ -117,6 +129,11 @@ function saveSession(state: GameState): void {
         units: state.units,
         events: state.events,
         injectTriggers: state.injectTriggers,
+        hostileBases: state.hostileBases,
+        hostileGroups: state.hostileGroups,
+        hostileUnits: state.hostileUnits,
+        knownTracks: state.knownTracks,
+        noFlyZones: state.noFlyZones,
         globePoints: state.globePoints,
         injects: state.injects,
         deploymentRequests: state.deploymentRequests,
@@ -185,6 +202,11 @@ export function serializeState(s: GameState): GameState {
       bases: s.bases,
       assets: s.assets,
       units: s.units,
+      hostileBases: s.hostileBases,
+      hostileGroups: s.hostileGroups,
+      hostileUnits: s.hostileUnits,
+      knownTracks: s.knownTracks,
+      noFlyZones: s.noFlyZones,
       injectTriggers: s.injectTriggers,
       globePoints: s.globePoints.map((p) => ({
         lat: p.lat,
@@ -240,6 +262,74 @@ function buildInjectTriggerKey(trigger: InjectTrigger): string {
   const lat = typeof trigger.lat === "number" ? trigger.lat.toFixed(4) : "na";
   const lng = typeof trigger.lng === "number" ? trigger.lng.toFixed(4) : "na";
   return `${trigger.tick}:${trigger.title ?? "inject"}:${lat}:${lng}`;
+}
+
+function spawnHostileUnitsForGroup(
+  state: GameState,
+  groupId: string
+): HostileUnit[] {
+  const group = state.hostileGroups.find((candidate) => candidate.id === groupId);
+  if (!group) return state.hostileUnits;
+  const base = state.hostileBases.find((candidate) => candidate.id === group.home_base);
+  const spawnLat = base?.lat ?? 0;
+  const spawnLng = base?.lng ?? 0;
+  const existingForGroup = state.hostileUnits.filter(
+    (unit) => unit.group_id === group.id
+  );
+  if (existingForGroup.length > 0) return state.hostileUnits;
+
+  const nextUnits = [...state.hostileUnits];
+  for (let i = 0; i < Math.max(1, group.quantity); i += 1) {
+    const waypoint = group.route?.[0];
+    nextUnits.push({
+      id: `${group.id}-${i + 1}`,
+      group_id: group.id,
+      label: `${group.label} ${i + 1}`,
+      side: group.side,
+      status: "AIRBORNE",
+      role: group.role,
+      sidc: group.sidc,
+      home_base: group.home_base,
+      lat: spawnLat,
+      lng: spawnLng,
+      target_lat: waypoint?.lat,
+      target_lng: waypoint?.lng,
+      route: group.route,
+      route_index: waypoint ? 0 : undefined,
+      current_fuel: group.max_fuel,
+      max_fuel: group.max_fuel,
+      fuel_burn_rate: group.fuel_burn_rate,
+      speed: group.speed,
+      sensor_range_km: group.sensor_range_km,
+      engagement_range_km: group.engagement_range_km,
+      combat_rating: group.combat_rating,
+      signature: group.signature,
+    });
+  }
+  return nextUnits;
+}
+
+function applyEventActions(state: GameState, eventId: string): GameState {
+  const event = state.events.find((candidate) => candidate.id === eventId);
+  if (!event || !event.actions || event.actions.length === 0) return state;
+
+  let nextState = state;
+  for (const action of event.actions) {
+    if (action.type === "SPAWN_HOSTILE_GROUP") {
+      const hostileUnits = spawnHostileUnitsForGroup(nextState, action.group_id);
+      nextState = { ...nextState, hostileUnits };
+      continue;
+    }
+    if (action.type === "ACTIVATE_ZONE") {
+      const noFlyZones: NoFlyZone[] = nextState.noFlyZones.map((zone) =>
+        zone.id === action.zone_id
+          ? { ...zone, active: action.active ?? true }
+          : zone
+      );
+      nextState = { ...nextState, noFlyZones };
+    }
+  }
+  return nextState;
 }
 
 function findTransportInjectOnStation(
@@ -567,6 +657,11 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         units: spawnUnitsFromAssets(definition.assets, definition.bases),
         events: definition.events,
         injectTriggers: definition.injectTriggers ?? [],
+        hostileBases: definition.hostileBases ?? [],
+        hostileGroups: definition.hostileGroups ?? [],
+        hostileUnits: [],
+        knownTracks: [],
+        noFlyZones: definition.noFlyZones ?? [],
         globePoints: definition.globePoints ?? [],
         globalTension: deriveGlobalTension(
           definition.resources,
@@ -711,7 +806,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         note: event.note,
         at: new Date(now).toISOString(),
       }));
-      const next = {
+      const nextWithInjects = {
         ...stateRef.current,
         resources: nextResources,
         injects: [...logs, ...stateRef.current.injects].slice(0, MAX_INJECT_LOGS),
@@ -720,6 +815,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
           stateRef.current.globalTension
         ),
       };
+      const next = applyEventActions(nextWithInjects, id);
       await persistAndPublish(next, "tick_update");
       return true;
     },

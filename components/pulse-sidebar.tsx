@@ -87,6 +87,55 @@ export function PulseSidebar({ mode = "sandbox" }: { mode?: "admin" | "cadet" | 
                 })}
               </div>
             )}
+            {isCadet ? (
+              <div className="mt-2 rounded border border-zinc-800 bg-zinc-900/30 px-2 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Detected Hostile Tracks ({state.knownTracks.length})
+                </p>
+                {state.knownTracks.length === 0 ? (
+                  <p className="mt-1 text-[11px] text-zinc-600">
+                    No active tracks detected by ISR/Strike assets.
+                  </p>
+                ) : (
+                  <div className="mt-1.5 space-y-1">
+                    {state.knownTracks.map((track) => (
+                      <div
+                        key={track.id}
+                        className="rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1"
+                      >
+                        <p className="text-[11px] text-zinc-300">{track.label}</p>
+                        <p className="text-[10px] text-zinc-500">
+                          Seen T{track.last_seen_tick} · Conf {track.confidence}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 rounded border border-red-900/60 bg-red-950/20 px-2 py-2">
+                <p className="text-[11px] uppercase tracking-wider text-red-300">
+                  Red Air Truth ({state.hostileUnits.length})
+                </p>
+                {state.hostileUnits.length === 0 ? (
+                  <p className="mt-1 text-[11px] text-zinc-500">No hostile aircraft active.</p>
+                ) : (
+                  <div className="mt-1.5 space-y-1">
+                    {state.hostileUnits.map((unit) => (
+                      <div
+                        key={unit.id}
+                        className="rounded border border-red-950/70 bg-black/40 px-2 py-1"
+                      >
+                        <p className="text-[11px] text-red-200">{unit.label}</p>
+                        <p className="text-[10px] text-zinc-500">
+                          {unit.status} · Fuel {Math.round(unit.current_fuel)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Admin controls */}

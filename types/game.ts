@@ -10,6 +10,9 @@ export interface Base {
 }
 
 export type UnitRole = "TANKER" | "FIGHTER" | "ISR" | "TRANSPORT";
+export type Side = "BLUE" | "RED";
+export type HostileUnitStatus = "AIRBORNE" | "DESTROYED";
+export type NoFlyZonePolicy = "WARN_THEN_DESTROY";
 
 export interface Asset {
   id: string;
@@ -24,6 +27,9 @@ export interface Asset {
   role?: UnitRole;
   aoe_radius?: number;
   transfer_rate?: number;
+  side?: Side;
+  sensor_range_km?: number;
+  detection_strength?: number;
 }
 
 export type UnitStatus = "GROUNDED" | "AIRBORNE" | "PENDING_APPROVAL";
@@ -61,6 +67,9 @@ export interface SpawnedUnit {
   deployment_status?: DeploymentRequestStatus;
   mission_type?: DeploymentMissionType;
   completed_inject_ids?: string[];
+  side?: Side;
+  sensor_range_km?: number;
+  detection_strength?: number;
 }
 
 export interface DeploymentRequest {
@@ -88,11 +97,102 @@ export interface GlobePoint {
   tick?: number;
 }
 
+export interface HostileBase {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  sidc: string;
+  side: Side;
+}
+
+export interface HostileGroupDefinition {
+  id: string;
+  label: string;
+  side: Side;
+  home_base: string;
+  quantity: number;
+  role: UnitRole;
+  sidc: string;
+  max_fuel: number;
+  fuel_burn_rate: number;
+  speed: number;
+  sensor_range_km?: number;
+  engagement_range_km?: number;
+  combat_rating?: number;
+  signature?: number;
+  route?: Array<{ lat: number; lng: number }>;
+}
+
+export interface HostileUnit {
+  id: string;
+  group_id: string;
+  label: string;
+  side: Side;
+  status: HostileUnitStatus;
+  role: UnitRole;
+  sidc: string;
+  home_base: string;
+  lat: number;
+  lng: number;
+  target_lat?: number;
+  target_lng?: number;
+  route?: Array<{ lat: number; lng: number }>;
+  route_index?: number;
+  current_fuel: number;
+  max_fuel: number;
+  fuel_burn_rate: number;
+  speed: number;
+  sensor_range_km?: number;
+  engagement_range_km?: number;
+  combat_rating?: number;
+  signature?: number;
+  first_warning_tick?: number;
+}
+
+export interface KnownTrack {
+  id: string;
+  truth_unit_id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  side: Side;
+  classification: "HOSTILE_AIR";
+  last_seen_tick: number;
+  detected_by_unit_id: string;
+  confidence: number;
+}
+
+export interface NoFlyZone {
+  id: string;
+  label: string;
+  shape: "CIRCLE";
+  center_lat: number;
+  center_lng: number;
+  radius_km: number;
+  active: boolean;
+  applies_to: Side[];
+  violation_policy: NoFlyZonePolicy;
+  warning_grace_ticks?: number;
+}
+
+export type EventAction =
+  | {
+      type: "SPAWN_HOSTILE_GROUP";
+      group_id: string;
+    }
+  | {
+      type: "ACTIVATE_ZONE";
+      zone_id: string;
+      active?: boolean;
+    };
+
 export interface GameEvent {
   id?: string;
   tick: number;
   note?: string;
   injects: ResourceMap;
+  actions?: EventAction[];
 }
 
 export interface InjectTrigger {
@@ -116,6 +216,9 @@ export interface GameDefinition {
   events: GameEvent[];
   globePoints: GlobePoint[];
   injectTriggers?: InjectTrigger[];
+  hostileBases?: HostileBase[];
+  hostileGroups?: HostileGroupDefinition[];
+  noFlyZones?: NoFlyZone[];
   scenarioTitle?: string;
 }
 
