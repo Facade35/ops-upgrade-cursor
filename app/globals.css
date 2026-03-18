@@ -121,3 +121,72 @@
   background-color: #27272a;
   color: #fafafa;
 }
+
+/* Globe marker hover tooltips for bases and aircraft */
+.glp-marker {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.glp-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: 130%;
+  transform: translateX(-50%) translateY(0);
+  min-width: 180px;
+  max-width: 260px;
+  padding: 6px 8px;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.96);
+  color: #e5e7eb;
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.75);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+  z-index: 20;
+  white-space: nowrap;
+}
+
+.glp-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: rgba(15, 23, 42, 0.96) transparent transparent transparent;
+}
+
+.glp-marker:hover .glp-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.glp-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.glp-tooltip-row {
+  opacity: 0.9;
+}
+
+.glp-tooltip-label {
+  font-weight: 500;
+  margin-right: 4px;
+  color: #cbd5f5;
+}
+
+.glp-tooltip--hostile-base,
+.glp-tooltip--hostile-unit {
+  border: 1px solid rgba(248, 113, 113, 0.7);
+}
+
+.glp-tooltip--base,
+.glp-tooltip--unit {
+  border: 1px solid rgba(52, 211, 153, 0.5);
+}

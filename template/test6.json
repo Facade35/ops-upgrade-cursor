@@ -38,6 +38,7 @@
       "role": "ISR",
       "max_fuel": 30000,
       "fuel_burn_rate": 10,
+      "aoe_radius": 60,
       "speed": 0.7,
       "capacity": 0,
       "sensor_range_km": 420,
@@ -53,6 +54,7 @@
       "role": "FIGHTER",
       "max_fuel": 18000,
       "fuel_burn_rate": 18,
+      "aoe_radius": 60,
       "speed": 1.8,
       "capacity": 0,
       "sensor_range_km": 150,
@@ -119,7 +121,7 @@
     },
     {
       "id": "ev_nfz_activate",
-      "tick": 20,
+      "tick": 60,
       "note": "No-fly zone declared over the Paracels.",
       "injects": { "Tension": 6 },
       "actions": [
@@ -142,7 +144,7 @@
       "sidc": "GFGPOAI----X"
     },
     {
-      "tick": 20,
+      "tick": 60,
       "type": "OPS",
       "title": "NFZ Enforcement Order",
       "content": "Temporary NFZ is active in the Paracels. Monitor for violations and report enforcement status.",
@@ -150,7 +152,7 @@
       "lng": 114.0,
       "priority": "CRITICAL",
       "required_response": "COA",
-      "deadline_tick": 30,
+      "deadline_tick": 90,
       "map_visible": true,
       "sidc": "GFGPOAO----X"
     }

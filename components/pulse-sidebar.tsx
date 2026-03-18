@@ -115,7 +115,7 @@ export function PulseSidebar({ mode = "sandbox" }: { mode?: "admin" | "cadet" | 
             ) : (
               <div className="mt-2 rounded border border-red-900/60 bg-red-950/20 px-2 py-2">
                 <p className="text-[11px] uppercase tracking-wider text-red-300">
-                  Red Air Truth ({state.hostileUnits.length})
+                  Red Assets ({state.hostileUnits.length})
                 </p>
                 {state.hostileUnits.length === 0 ? (
                   <p className="mt-1 text-[11px] text-zinc-500">No hostile aircraft active.</p>

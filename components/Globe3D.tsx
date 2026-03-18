@@ -18,7 +18,8 @@ const Globe = dynamic(() => import("react-globe.gl"), {
 const EARTH_RADIUS_KM = 6371.0088;
 const CIRCLE_SEGMENTS = 96;
 const UNIT_Z_AXIS = new THREE.Vector3(0, 0, 1);
-const AIRBORNE_OVERLAY_ALTITUDE = 0.05;
+const AIRBORNE_OVERLAY_ALTITUDE = 0.018;
+const CYLINDER_HEIGHT_FRACTION = -0.018; // Opposite of overlay altitude+.02
 
 type AoeMeshDatum = {
   id: string;
@@ -47,10 +48,23 @@ export default function Globe3D() {
     (unit) => unit.status === "AIRBORNE"
   );
   const activeNoFlyZones = state.noFlyZones.filter((zone) => zone.active);
+  const assetsByBaseId = useMemo(() => {
+    const map = new Map<string, { label: string; quantity: number }[]>();
+    for (const asset of state.assets) {
+      if (!asset.home_base) continue;
+      const label = asset.label ?? asset.id ?? "Asset";
+      const quantity = typeof asset.quantity === "number" ? asset.quantity : 1;
+      const existing = map.get(asset.home_base) ?? [];
+      existing.push({ label, quantity });
+      map.set(asset.home_base, existing);
+    }
+    return map;
+  }, [state.assets]);
   const globeMarkers = [
     ...state.bases.map((base) => ({
       ...base,
       markerType: "BASE" as const,
+      assetsStationed: assetsByBaseId.get(base.id) ?? [],
     })),
     ...(isAdminView
       ? state.hostileBases.map((base) => ({
@@ -92,12 +106,28 @@ export default function Globe3D() {
     return globeRadius * (Math.max(0, radiusKm) / EARTH_RADIUS_KM);
   };
 
-  const buildCircleGeometry = (radius: number): THREE.BufferGeometry =>
-    new THREE.CircleGeometry(radius, CIRCLE_SEGMENTS);
+  const getCylinderHeight = (): number => {
+    const globeRadius = globeRef.current?.getGlobeRadius?.() ?? 100;
+    return globeRadius * CYLINDER_HEIGHT_FRACTION;
+  };
 
-  const buildCircleBorderGeometry = (radius: number): THREE.BufferGeometry => {
+  const buildCylinderWallGeometry = (radius: number, height: number): THREE.BufferGeometry => {
+    const geo = new THREE.CylinderGeometry(radius, radius, height, CIRCLE_SEGMENTS, 1, true);
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, 0, height / 2);
+    return geo;
+  };
+
+  const buildCylinderCapGeometry = (radius: number): THREE.BufferGeometry => {
+    const geo = new THREE.CircleGeometry(radius, CIRCLE_SEGMENTS);
+    return geo;
+  };
+
+  const buildRingGeometry = (radius: number, zOffset: number): THREE.BufferGeometry => {
     const points = new THREE.Path().absarc(0, 0, radius, 0, Math.PI * 2, false).getPoints(CIRCLE_SEGMENTS);
-    return new THREE.BufferGeometry().setFromPoints(points);
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    if (zOffset !== 0) geo.translate(0, 0, zOffset);
+    return geo;
   };
 
   const positionAoeMesh = (obj: THREE.Object3D, datum: AoeMeshDatum) => {
@@ -110,59 +140,74 @@ export default function Globe3D() {
 
   const updateAoeMeshObject = (obj: THREE.Object3D, datum: AoeMeshDatum) => {
     const group = obj as THREE.Group;
-    const fill = group.getObjectByName("aoe-fill") as THREE.Mesh | undefined;
-    const border = group.getObjectByName("aoe-border") as THREE.LineLoop | undefined;
-    if (!fill || !border) return;
+    const wall = group.getObjectByName("aoe-wall") as THREE.Mesh | undefined;
+    const cap = group.getObjectByName("aoe-cap") as THREE.Mesh | undefined;
+    const topBorder = group.getObjectByName("aoe-border") as THREE.LineLoop | undefined;
+    if (!wall || !cap || !topBorder) return;
 
     const worldRadius = toWorldRadius(datum.radiusKm);
-    if (group.userData.worldRadius !== worldRadius) {
-      const nextFillGeometry = buildCircleGeometry(worldRadius);
-      const nextBorderGeometry = buildCircleBorderGeometry(worldRadius);
-      (fill.geometry as THREE.BufferGeometry).dispose();
-      fill.geometry = nextFillGeometry;
-      (border.geometry as THREE.BufferGeometry).dispose();
-      border.geometry = nextBorderGeometry;
+    const height = getCylinderHeight();
+    if (group.userData.worldRadius !== worldRadius || group.userData.cylinderHeight !== height) {
+      wall.geometry.dispose();
+      wall.geometry = buildCylinderWallGeometry(worldRadius, height);
+      cap.geometry.dispose();
+      cap.geometry = buildCylinderCapGeometry(worldRadius);
+      topBorder.geometry.dispose();
+      topBorder.geometry = buildRingGeometry(worldRadius, 0);
       group.userData.worldRadius = worldRadius;
+      group.userData.cylinderHeight = height;
     }
 
-    const color = roleColor(datum.role);
-    const nextColor = datum.kind === "NFZ" ? zoneColor : color;
-    (fill.material as THREE.MeshBasicMaterial).color.set(nextColor);
-    (fill.material as THREE.MeshBasicMaterial).opacity =
-      datum.kind === "NFZ" ? 0.08 : datum.selected ? 0.2 : 0.15;
-    (border.material as THREE.LineBasicMaterial).color.set(nextColor);
+    const nextColor = datum.kind === "NFZ" ? zoneColor : roleColor(datum.role);
+    (wall.material as THREE.MeshBasicMaterial).color.set(nextColor);
+    (wall.material as THREE.MeshBasicMaterial).opacity =
+      datum.kind === "NFZ" ? 0.26 : datum.selected ? 0.35 : 0.3;
+    (cap.material as THREE.MeshBasicMaterial).color.set(nextColor);
+    (cap.material as THREE.MeshBasicMaterial).opacity =
+      datum.kind === "NFZ" ? 0.16 : datum.selected ? 0.25 : 0.2;
+    (topBorder.material as THREE.LineBasicMaterial).color.set(nextColor);
     positionAoeMesh(group, datum);
   };
 
   const createAoeMeshObject = (datum: AoeMeshDatum): THREE.Object3D => {
     const worldRadius = toWorldRadius(datum.radiusKm);
+    const height = getCylinderHeight();
     const color = datum.kind === "NFZ" ? zoneColor : roleColor(datum.role);
     const group = new THREE.Group();
 
-    const fill = new THREE.Mesh(
-      buildCircleGeometry(worldRadius),
+    const wall = new THREE.Mesh(
+      buildCylinderWallGeometry(worldRadius, height),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: datum.kind === "NFZ" ? 0.08 : datum.selected ? 0.2 : 0.15,
+        opacity: datum.kind === "NFZ" ? 0.26 : datum.selected ? 0.35 : 0.3,
+        side: THREE.FrontSide,
+        depthWrite: false,
+      })
+    );
+    wall.name = "aoe-wall";
+
+    const cap = new THREE.Mesh(
+      buildCylinderCapGeometry(worldRadius),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: datum.kind === "NFZ" ? 0.16 : datum.selected ? 0.25 : 0.2,
         side: THREE.DoubleSide,
         depthWrite: false,
       })
     );
-    fill.name = "aoe-fill";
+    cap.name = "aoe-cap";
 
-    const border = new THREE.LineLoop(
-      buildCircleBorderGeometry(worldRadius),
-      new THREE.LineBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.95,
-      })
+    const topBorder = new THREE.LineLoop(
+      buildRingGeometry(worldRadius, 0),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 })
     );
-    border.name = "aoe-border";
+    topBorder.name = "aoe-border";
 
-    group.add(fill, border);
+    group.add(wall, cap, topBorder);
     group.userData.worldRadius = worldRadius;
+    group.userData.cylinderHeight = height;
     positionAoeMesh(group, datum);
     return group;
   };
@@ -240,7 +285,10 @@ export default function Globe3D() {
         <CardTitle className="uppercase tracking-[0.1em]">{state.scenarioTitle ?? "No scenario loaded"}</CardTitle>
       </CardHeader>
       <CardContent className="min-h-[72vh] px-2 pb-2">
-        <div className="globe-color relative flex h-[72vh] min-h-[560px] w-full items-center justify-center overflow-hidden rounded-xl bg-black" style={{ filter: "none" }}>
+        <div
+          className="globe-color relative flex h-[72vh] min-h-[560px] w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+          style={{ filter: "none" }}
+        >
           <div className="scanline-overlay"></div>
           <Globe
             ref={globeRef}
@@ -258,55 +306,151 @@ export default function Globe3D() {
               htmlElementsData={globeMarkers}
               htmlLat="lat"
               htmlLng="lng"
-              htmlAltitude={(d: any) => (d.markerType === "UNIT" ? AIRBORNE_OVERLAY_ALTITUDE : 0)}
+              htmlAltitude={(d: any) => {
+                if (d.markerType === "UNIT" || d.markerType === "HOSTILE_UNIT") return AIRBORNE_OVERLAY_ALTITUDE;
+                if (d.markerType === "POINT") return 0.001;
+                return 0;
+              }}
               htmlElement={(d: any) => {
-                const el = document.createElement("div");
+                const container = document.createElement("div");
+                container.className = "glp-marker";
+                container.style.pointerEvents = "auto";
                 if (d.markerType === "BASE") {
+                  const icon = document.createElement("div");
                   const symbol = new ms.Symbol(d.sidc ?? "SFGPE---------", {
                     size: 24,
                   });
                   const symbolSvg = symbol.asSVG();
-                  el.innerHTML = symbolSvg;
-                  el.style.width = "24px";
-                  el.style.height = "24px";
-                  el.style.filter = "drop-shadow(0 0 5px rgba(0,0,0,0.55))";
-                  el.title = d.label ?? d.id ?? "Base";
-                  return el;
+                  icon.innerHTML = symbolSvg;
+                  icon.style.width = "24px";
+                  icon.style.height = "24px";
+                  icon.style.filter = "drop-shadow(0 0 5px rgba(0,0,0,0.55))";
+
+                  const tooltip = document.createElement("div");
+                  tooltip.className = "glp-tooltip glp-tooltip--base";
+                  const baseName = d.label ?? d.id ?? "Base";
+                  const fuel =
+                    typeof d.fuel_reserves === "number"
+                      ? d.fuel_reserves.toLocaleString()
+                      : "N/A";
+                  const assets: Array<{ label: string; quantity: number }> =
+                    Array.isArray(d.assetsStationed) ? d.assetsStationed : [];
+                  const assetsHtml =
+                    assets.length > 0
+                      ? `<div class="glp-tooltip-row"><span class="glp-tooltip-label">Assets:</span> ${assets
+                          .map((a) =>
+                            a.quantity > 1 ? `${a.label} ×${a.quantity}` : a.label
+                          )
+                          .join(", ")}</div>`
+                      : "";
+                  tooltip.innerHTML = `
+                    <div class="glp-tooltip-title">${baseName}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Fuel:</span> ${fuel}</div>
+                    ${assetsHtml}
+                  `;
+
+                  container.appendChild(icon);
+                  container.appendChild(tooltip);
+                  return container;
                 }
                 if (d.markerType === "HOSTILE_BASE") {
+                  const icon = document.createElement("div");
                   const symbol = new ms.Symbol(d.sidc ?? "SHGPE---------", {
                     size: 24,
                   });
-                  el.innerHTML = symbol.asSVG();
-                  el.style.width = "24px";
-                  el.style.height = "24px";
-                  el.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.6))";
-                  el.title = d.label ?? d.id ?? "Hostile Base";
-                  return el;
+                  icon.innerHTML = symbol.asSVG();
+                  icon.style.width = "24px";
+                  icon.style.height = "24px";
+                  icon.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.6))";
+
+                  const tooltip = document.createElement("div");
+                  tooltip.className = "glp-tooltip glp-tooltip--hostile-base";
+                  const baseName = d.label ?? d.id ?? "Hostile Base";
+                  const fuel =
+                    typeof d.fuel_reserves === "number"
+                      ? d.fuel_reserves.toLocaleString()
+                      : "Unknown";
+                  tooltip.innerHTML = `
+                    <div class="glp-tooltip-title">${baseName}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Fuel:</span> ${fuel}</div>
+                  `;
+
+                  container.appendChild(icon);
+                  container.appendChild(tooltip);
+                  return container;
                 }
                 if (d.markerType === "UNIT") {
+                  const icon = document.createElement("div");
                   const symbol = new ms.Symbol(d.sidc ?? "SFAPMF----------", {
                     size: 18,
                   });
-                  el.innerHTML = symbol.asSVG();
-                  el.style.width = "18px";
-                  el.style.height = "18px";
-                  el.style.filter = "drop-shadow(0 0 4px rgba(0,255,65,0.6))";
-                  el.title = d.label ?? d.id ?? "Unit";
-                  return el;
+                  icon.innerHTML = symbol.asSVG();
+                  icon.style.width = "18px";
+                  icon.style.height = "18px";
+                  icon.style.filter = "drop-shadow(0 0 4px rgba(0,255,65,0.6))";
+
+                  const tooltip = document.createElement("div");
+                  tooltip.className = "glp-tooltip glp-tooltip--unit";
+                  const name = d.label ?? d.id ?? "Aircraft";
+                  const currentFuel =
+                    typeof d.current_fuel === "number"
+                      ? d.current_fuel.toLocaleString()
+                      : "N/A";
+                  const maxFuel =
+                    typeof d.max_fuel === "number"
+                      ? d.max_fuel.toLocaleString()
+                      : "N/A";
+                  const lat =
+                    typeof d.lat === "number" ? d.lat.toFixed(2) : "—";
+                  const lng =
+                    typeof d.lng === "number" ? d.lng.toFixed(2) : "—";
+                  tooltip.innerHTML = `
+                    <div class="glp-tooltip-title">${name}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Fuel:</span> ${currentFuel} / ${maxFuel}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Coords:</span> ${lat}, ${lng}</div>
+                  `;
+
+                  container.appendChild(icon);
+                  container.appendChild(tooltip);
+                  return container;
                 }
                 if (d.markerType === "HOSTILE_UNIT") {
+                  const icon = document.createElement("div");
                   const symbol = new ms.Symbol(d.sidc ?? "SHAPMF----------", {
                     size: 18,
                   });
-                  el.innerHTML = symbol.asSVG();
-                  el.style.width = "18px";
-                  el.style.height = "18px";
-                  el.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.9))";
-                  el.title = d.label ?? d.id ?? "Hostile Unit";
-                  return el;
+                  icon.innerHTML = symbol.asSVG();
+                  icon.style.width = "18px";
+                  icon.style.height = "18px";
+                  icon.style.filter = "drop-shadow(0 0 6px rgba(255,59,48,0.9))";
+
+                  const tooltip = document.createElement("div");
+                  tooltip.className = "glp-tooltip glp-tooltip--hostile-unit";
+                  const name = d.label ?? d.id ?? "Hostile Aircraft";
+                  const currentFuel =
+                    typeof d.current_fuel === "number"
+                      ? d.current_fuel.toLocaleString()
+                      : "N/A";
+                  const maxFuel =
+                    typeof d.max_fuel === "number"
+                      ? d.max_fuel.toLocaleString()
+                      : "N/A";
+                  const lat =
+                    typeof d.lat === "number" ? d.lat.toFixed(2) : "—";
+                  const lng =
+                    typeof d.lng === "number" ? d.lng.toFixed(2) : "—";
+                  tooltip.innerHTML = `
+                    <div class="glp-tooltip-title">${name}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Fuel:</span> ${currentFuel} / ${maxFuel}</div>
+                    <div class="glp-tooltip-row"><span class="glp-tooltip-label">Coords:</span> ${lat}, ${lng}</div>
+                  `;
+
+                  container.appendChild(icon);
+                  container.appendChild(tooltip);
+                  return container;
                 }
                 if (d.markerType === "TRACK") {
+                  const el = document.createElement("div");
                   el.style.width = "12px";
                   el.style.height = "12px";
                   el.style.borderRadius = "50%";
@@ -317,6 +461,7 @@ export default function Globe3D() {
                   return el;
                 }
 
+                const el = document.createElement("div");
                 el.style.width = "10px";
                 el.style.height = "10px";
                 el.style.borderRadius = "50%";
