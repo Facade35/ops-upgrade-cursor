@@ -16,7 +16,9 @@ function DashboardContent() {
   const scenarioTitle = state.scenarioTitle ?? "Cadet Dashboard";
   const actionsBadgeCount = state.injectTriggers.filter((trigger) => {
     if (trigger.tick > state.tick) return false;
-    if (!trigger.required_response) return false;
+    if (trigger.required_response !== "MFR" && trigger.required_response !== "COA") {
+      return false;
+    }
     return !injectResponses[triggerKey(trigger)];
   }).length;
   const deploymentsBadgeCount = state.deploymentRequests.filter(

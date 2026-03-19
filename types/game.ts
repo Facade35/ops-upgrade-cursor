@@ -13,6 +13,12 @@ export type UnitRole = "TANKER" | "FIGHTER" | "ISR" | "TRANSPORT";
 export type Side = "BLUE" | "RED";
 export type HostileUnitStatus = "AIRBORNE" | "DESTROYED";
 export type NoFlyZonePolicy = "WARN_THEN_DESTROY";
+export type InjectResponseRequirement = "MFR" | "COA" | "NONE";
+export type InjectKind =
+  | "TASK_RED_ASSET"
+  | "CREATE_NFZ"
+  | "CREATE_DROP_ZONE"
+  | "INFO_UPDATE";
 
 export interface Asset {
   id: string;
@@ -70,6 +76,8 @@ export interface SpawnedUnit {
   side?: Side;
   sensor_range_km?: number;
   detection_strength?: number;
+  route?: Array<{ lat: number; lng: number }>;
+  route_index?: number;
 }
 
 export interface DeploymentRequest {
@@ -95,6 +103,7 @@ export interface GlobePoint {
   label?: string;
   type?: string;
   tick?: number;
+  radius_km?: number;
 }
 
 export interface HostileBase {
@@ -185,6 +194,20 @@ export type EventAction =
       type: "ACTIVATE_ZONE";
       zone_id: string;
       active?: boolean;
+    }
+  | {
+      type: "CREATE_NFZ";
+      zone: NoFlyZone;
+    }
+  | {
+      type: "CREATE_DROP_ZONE";
+      point: GlobePoint;
+    }
+  | {
+      type: "RETASK_RED_ASSETS";
+      target_lat: number;
+      target_lng: number;
+      group_ids?: string[];
     };
 
 export interface GameEvent {
@@ -196,17 +219,20 @@ export interface GameEvent {
 }
 
 export interface InjectTrigger {
+  id?: string;
   tick: number;
   title?: string;
   content?: string;
   type?: string;
   priority?: string;
-  required_response?: "MFR" | "COA";
+  required_response?: InjectResponseRequirement;
   deadline_tick?: number;
   lat?: number;
   lng?: number;
   map_visible?: boolean;
   sidc?: string;
+  inject_kind?: InjectKind;
+  action_payload?: Record<string, unknown>;
 }
 
 export interface GameDefinition {

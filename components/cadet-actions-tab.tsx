@@ -137,6 +137,10 @@ function TriggerResponseCard({
 }) {
   const id = triggerKey(trigger);
   const submitted = !!responseRecord;
+  const requiredResponse = trigger.required_response;
+  const requiresMfr = requiredResponse === "MFR";
+  const requiresCoa = requiredResponse === "COA";
+  const requiresResponse = requiresMfr || requiresCoa;
 
   const ticksRemaining =
     trigger.deadline_tick != null ? trigger.deadline_tick - currentTick : null;
@@ -179,9 +183,9 @@ function TriggerResponseCard({
   const canSubmitCOA = Object.values(coaSelections).some((s) => s.selected);
 
   const handleSubmit = () => {
-    if (trigger.required_response === "MFR") {
+    if (requiresMfr) {
       onSubmit(id, "MFR", mfrText.trim());
-    } else if (trigger.required_response === "COA") {
+    } else if (requiresCoa) {
       const lines: string[] = [`COA — ${trigger.title ?? "Untitled"}`, ""];
       lines.push("ASSIGNED ASSETS:");
       for (const asset of assets) {
@@ -231,21 +235,21 @@ function TriggerResponseCard({
                 {trigger.priority}
               </Badge>
             )}
-            {trigger.required_response && (
+            {requiresResponse && (
               <Badge
                 className={`font-mono text-[10px] uppercase tracking-wider ${
-                  trigger.required_response === "MFR"
+                  requiresMfr
                     ? "bg-blue-700/60 text-blue-100"
                     : "bg-emerald-700/60 text-emerald-100"
                 }`}
               >
                 <span className="flex items-center gap-1">
-                  {trigger.required_response === "MFR" ? (
+                  {requiresMfr ? (
                     <FileText className="size-3 shrink-0" />
                   ) : (
                     <Target className="size-3 shrink-0" />
                   )}
-                  {trigger.required_response} Required
+                  {requiredResponse} Required
                 </span>
               </Badge>
             )}
@@ -313,7 +317,7 @@ function TriggerResponseCard({
               </p>
             </div>
           </div>
-        ) : trigger.required_response === "MFR" ? (
+        ) : requiresMfr ? (
           /* MFR inline form */
           <div className="space-y-3 rounded-lg border border-border border-t-primary/40 bg-card/50 p-4 md:border-t-2">
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -340,7 +344,7 @@ function TriggerResponseCard({
               </Button>
             </div>
           </div>
-        ) : trigger.required_response === "COA" ? (
+        ) : requiresCoa ? (
           /* COA inline form */
           <div className="space-y-4 rounded-lg border border-border border-t-primary/40 bg-card/50 p-4 md:border-t-2">
             <COAForm

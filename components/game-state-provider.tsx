@@ -122,6 +122,16 @@ function applyEventInjects(resources: ResourceMap, injects: ResourceMap) {
   return next;
 }
 
+function withTriggerIds(triggers: InjectTrigger[] | undefined): InjectTrigger[] {
+  return (triggers ?? []).map((trigger, index) => ({
+    ...trigger,
+    id:
+      typeof trigger.id === "string" && trigger.id.trim().length > 0
+        ? trigger.id
+        : `inject-trigger-${index + 1}`,
+  }));
+}
+
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "LOAD_DEFINITION": {
@@ -136,7 +146,7 @@ function reducer(state: GameState, action: Action): GameState {
         ),
         events: action.payload.definition.events,
         injects: [],
-        injectTriggers: action.payload.definition.injectTriggers ?? [],
+        injectTriggers: withTriggerIds(action.payload.definition.injectTriggers),
         hostileBases: action.payload.definition.hostileBases ?? [],
         hostileGroups: action.payload.definition.hostileGroups ?? [],
         hostileUnits: [],

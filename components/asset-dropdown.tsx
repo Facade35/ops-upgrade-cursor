@@ -60,7 +60,10 @@ export function AssetDropdown({
       ) {
         return false;
       }
-      const triggerKey = `${trigger.tick}:${trigger.title ?? "inject"}:${trigger.lat.toFixed(4)}:${trigger.lng.toFixed(4)}`;
+      const triggerKey =
+        typeof trigger.id === "string" && trigger.id.trim().length > 0
+          ? trigger.id
+          : `${trigger.tick}:${trigger.title ?? "inject"}:${trigger.lat.toFixed(4)}:${trigger.lng.toFixed(4)}`;
       if (completed.has(triggerKey)) return false;
       return isWithinAoe(unit.lat, unit.lng, trigger.lat, trigger.lng, aoeRadius);
     });

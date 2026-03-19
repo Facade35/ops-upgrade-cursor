@@ -52,6 +52,10 @@ export function AdminIntelTab() {
       {triggers.map((t, i) => {
         const key = triggerKey(t);
         const response = injectResponses[key];
+        const requiredResponse = t.required_response;
+        const requiresMfr = requiredResponse === "MFR";
+        const requiresCoa = requiredResponse === "COA";
+        const requiresResponse = requiresMfr || requiresCoa;
         const ticksRemaining =
           t.deadline_tick != null ? t.deadline_tick - state.tick : null;
         const overdue = ticksRemaining !== null && ticksRemaining <= 0;
@@ -99,21 +103,21 @@ export function AdminIntelTab() {
                       NOT YET RELEASED
                     </Badge>
                   )}
-                  {t.required_response && (
+                  {requiresResponse && (
                     <Badge
                       className={`font-mono text-[10px] uppercase tracking-wider ${
-                        t.required_response === "MFR"
+                        requiresMfr
                           ? "bg-blue-700/60 text-blue-100"
                           : "bg-emerald-700/60 text-emerald-100"
                       }`}
                     >
                       <span className="flex items-center gap-1">
-                        {t.required_response === "MFR" ? (
+                        {requiresMfr ? (
                           <FileText className="size-3 shrink-0" />
                         ) : (
                           <Target className="size-3 shrink-0" />
                         )}
-                        {t.required_response} Required
+                        {requiredResponse} Required
                       </span>
                     </Badge>
                   )}
@@ -190,10 +194,10 @@ export function AdminIntelTab() {
                     </pre>
                   </div>
                 </div>
-              ) : t.required_response ? (
+              ) : requiresResponse ? (
                 <div className="flex items-center gap-2 text-sm text-zinc-500">
                   <Clock className="size-4 shrink-0" />
-                  Awaiting cadet {t.required_response} submission…
+                  Awaiting cadet {requiredResponse} submission…
                 </div>
               ) : (
                 <p className="text-sm text-zinc-600">No response required.</p>

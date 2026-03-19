@@ -20,6 +20,98 @@ const CIRCLE_SEGMENTS = 96;
 const UNIT_Z_AXIS = new THREE.Vector3(0, 0, 1);
 const AIRBORNE_OVERLAY_ALTITUDE = 0.018;
 const CYLINDER_HEIGHT_FRACTION = -0.018; // Opposite of overlay altitude+.02
+const LEGACY_UNSUPPORTED_AIR_SIDCS = new Set([
+  "SFAPMC----------",
+  "SFAPMT----------",
+  "SFAPMS----------",
+]);
+const AIR_ROLE_SIDCS = {
+  STRIKE: "SFAPMF----------",
+  CARGO: "SFAPML----------",
+  RECON: "SFAPME----------",
+  UTILITY: "SFAPMH----------",
+  TANKER: "SFAPMV----------",
+} as const;
+const NUMERIC_AIR_ROLE_SIDCS: Record<string, (typeof AIR_ROLE_SIDCS)[keyof typeof AIR_ROLE_SIDCS]> = {
+  "130301000011010400000000000000": AIR_ROLE_SIDCS.STRIKE, // fighter
+  "130301000011010700000000000000": AIR_ROLE_SIDCS.CARGO, // cargo
+  "130301000011011300000000000000": AIR_ROLE_SIDCS.UTILITY, // utility
+  "130301000011010900000000000000": AIR_ROLE_SIDCS.TANKER, // tanker
+  "130301000011011100000000000000": AIR_ROLE_SIDCS.RECON, // recon
+};
+const SIDC_REMAPPINGS: Record<string, string> = {
+  // Keep generic remaps for non-unit markers that may still send legacy codes.
+  "SFAPMC----------": AIR_ROLE_SIDCS.CARGO,
+  "SFAPMT----------": AIR_ROLE_SIDCS.TANKER,
+  "SFAPMS----------": AIR_ROLE_SIDCS.RECON,
+  ...NUMERIC_AIR_ROLE_SIDCS,
+};
+const sidcValidityCache = new Map<string, boolean>();
+
+function isRenderableSidc(sidc: string): boolean {
+  if (sidcValidityCache.has(sidc)) return sidcValidityCache.get(sidc) ?? false;
+  let valid = false;
+  try {
+    valid = Boolean(new ms.Symbol(sidc, { size: 1 }).isValid());
+  } catch {
+    valid = false;
+  }
+  sidcValidityCache.set(sidc, valid);
+  return valid;
+}
+
+function resolveRenderableSidc(rawSidc: unknown, fallbackSidc: string): string {
+  if (typeof rawSidc !== "string" || rawSidc.trim().length === 0) {
+    return fallbackSidc;
+  }
+  const trimmed = rawSidc.trim();
+  if (isRenderableSidc(trimmed)) return trimmed;
+  const remapped = SIDC_REMAPPINGS[trimmed] ?? trimmed;
+  return isRenderableSidc(remapped) ? remapped : fallbackSidc;
+}
+
+function inferAirRoleSidc(marker: any): string | undefined {
+  const role = typeof marker?.role === "string" ? marker.role.trim().toUpperCase() : "";
+  const id = typeof marker?.id === "string" ? marker.id.toUpperCase() : "";
+  const label = typeof marker?.label === "string" ? marker.label.toUpperCase() : "";
+  const text = `${id} ${label}`;
+
+  if (role === "FIGHTER" || text.includes("F-15") || text.includes("F-16") || text.includes("F-22") || text.includes("F-35")) {
+    return AIR_ROLE_SIDCS.STRIKE;
+  }
+  if (role === "ISR" || text.includes("P-8") || text.includes("POSEIDON") || text.includes("RECON")) {
+    return AIR_ROLE_SIDCS.RECON;
+  }
+  if (role === "TANKER" || text.includes("KC-") || text.includes("STRATOTANKER")) {
+    return AIR_ROLE_SIDCS.TANKER;
+  }
+  if (
+    text.includes("C-130") ||
+    text.includes("C130") ||
+    text.includes("HERCULES") ||
+    text.includes("CV-22") ||
+    text.includes("CV22") ||
+    text.includes("OSPREY")
+  ) {
+    return AIR_ROLE_SIDCS.UTILITY;
+  }
+  if (role === "TRANSPORT" || text.includes("C-17") || text.includes("GLOBEMASTER") || text.includes("C-5") || text.includes("GALAXY")) {
+    return AIR_ROLE_SIDCS.CARGO;
+  }
+  return undefined;
+}
+
+function resolveUnitSidc(marker: any, fallbackSidc: string): string {
+  const rawSidc = typeof marker?.sidc === "string" ? marker.sidc.trim() : "";
+  if (rawSidc && !LEGACY_UNSUPPORTED_AIR_SIDCS.has(rawSidc) && isRenderableSidc(rawSidc)) {
+    return rawSidc;
+  }
+  const numericMapped = NUMERIC_AIR_ROLE_SIDCS[rawSidc];
+  if (numericMapped && isRenderableSidc(numericMapped)) return numericMapped;
+  const inferred = inferAirRoleSidc(marker);
+  if (inferred && isRenderableSidc(inferred)) return inferred;
+  return resolveRenderableSidc(rawSidc, fallbackSidc);
+}
 
 type AoeMeshDatum = {
   id: string;
@@ -317,7 +409,7 @@ export default function Globe3D() {
                 container.style.pointerEvents = "auto";
                 if (d.markerType === "BASE") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(d.sidc ?? "SFGPE---------", {
+                  const symbol = new ms.Symbol(resolveRenderableSidc(d.sidc, "SFGPE---------"), {
                     size: 24,
                   });
                   const symbolSvg = symbol.asSVG();
@@ -355,7 +447,7 @@ export default function Globe3D() {
                 }
                 if (d.markerType === "HOSTILE_BASE") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(d.sidc ?? "SHGPE---------", {
+                  const symbol = new ms.Symbol(resolveRenderableSidc(d.sidc, "SHGPE---------"), {
                     size: 24,
                   });
                   icon.innerHTML = symbol.asSVG();
@@ -381,7 +473,7 @@ export default function Globe3D() {
                 }
                 if (d.markerType === "UNIT") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(d.sidc ?? "SFAPMF----------", {
+                  const symbol = new ms.Symbol(resolveUnitSidc(d, AIR_ROLE_SIDCS.STRIKE), {
                     size: 18,
                   });
                   icon.innerHTML = symbol.asSVG();
@@ -416,7 +508,7 @@ export default function Globe3D() {
                 }
                 if (d.markerType === "HOSTILE_UNIT") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(d.sidc ?? "SHAPMF----------", {
+                  const symbol = new ms.Symbol(resolveUnitSidc(d, "SHAPMF----------"), {
                     size: 18,
                   });
                   icon.innerHTML = symbol.asSVG();
@@ -469,6 +561,7 @@ export default function Globe3D() {
                 if (d.type === "INTEL") color = "#00ff41";
                 if (d.type === "ADMIN") color = "#ffb000";
                 if (d.type === "OPS") color = "rgba(59, 130, 246, 0.95)";
+                if (d.type === "DROP_ZONE") color = "rgba(34, 197, 94, 0.95)";
                 el.style.backgroundColor = color;
                 el.style.boxShadow = `0 0 6px ${color}`;
                 el.title = [d.label, d.type].filter(Boolean).join(" · ") || "Point";

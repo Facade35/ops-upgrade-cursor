@@ -16,34 +16,34 @@
         "label": "U-Tapao Rayong-Pattaya AB", 
         "lat": 12.6775, "lng": 101.0044, 
         "fuel_reserves": 1320860,
-        "sidc": "SFGPE---------"
+        "sidc": "130320000012080300000000000000"
       },
       { 
         "id": "base_changi", 
         "label": "Changi AB, Singapore", 
         "lat": 1.3656, "lng": 103.9894, 
         "fuel_reserves": 500000,
-        "sidc": "SFGPE---------"
+        "sidc": "130320000012080300000000000000"
       },
       { 
         "id": "base_basa", 
         "label": "Cesar Basa AB, Philippines", 
         "lat": 14.9856, "lng": 120.4931, 
         "fuel_reserves": 250000,
-        "sidc": "SFGPE---------"
+        "sidc": "130320000012080300000000000000"
       }
     ],
     "assets": [
-      { "id": "f16c", "label": "F-16C Falcon", "sidc": "SFAPMF----------", "quantity": 9, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 40, "max_fuel": 15000, "fuel_burn_rate": 12, "speed": 1.5, "capacity": 0 },
-      { "id": "f15e", "label": "F-15E Strike Eagle", "sidc": "SFAPMF----------", "quantity": 9, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 50, "max_fuel": 18000, "fuel_burn_rate": 18, "speed": 1.8, "capacity": 0 },
-      { "id": "f35a", "label": "F-35A Lightning", "sidc": "SFAPMF----------", "quantity": 6, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 60, "max_fuel": 20000, "fuel_burn_rate": 15, "speed": 1.6, "capacity": 0 },
-      { "id": "f22", "label": "F-22 Raptor", "sidc": "SFAPMF----------", "quantity": 6, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 60, "max_fuel": 25000, "fuel_burn_rate": 20, "speed": 2.0, "capacity": 0 },
-      { "id": "c130", "label": "C-130 Hercules", "sidc": "SFAPMC----------", "quantity": 3, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 20000, "fuel_burn_rate": 8, "speed": 0.6, "capacity": 80 },
-      { "id": "c17", "label": "C-17 Globemaster", "sidc": "SFAPMC----------", "quantity": 6, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 45000, "fuel_burn_rate": 25, "speed": 0.8, "capacity": 150 },
-      { "id": "c5m", "label": "C-5M Galaxy", "sidc": "SFAPMC----------", "quantity": 3, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 75000, "fuel_burn_rate": 35, "speed": 0.8, "capacity": 300 },
-      { "id": "kc135", "label": "KC-135 Stratotanker", "sidc": "SFAPMT----------", "quantity": 1, "home_base": "base_utapao", "role": "TANKER", "aoe_radius": 20, "transfer_rate": 1000, "max_fuel": 30000, "fuel_burn_rate": 15, "speed": 0.8, "capacity": 0 },
-      { "id": "cv22b", "label": "CV-22B Osprey", "sidc": "SFAPMH----------", "quantity": 4, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 5, "max_fuel": 12000, "fuel_burn_rate": 10, "speed": 0.4, "capacity": 24 },
-      { "id": "p8", "label": "P-8 Poseidon", "sidc": "SFAPMS----------", "quantity": 1, "home_base": "base_basa", "role": "ISR", "aoe_radius": 150, "max_fuel": 30000, "fuel_burn_rate": 10, "speed": 0.7, "capacity": 0 }
+      { "id": "f16c", "label": "F-16C Falcon", "sidc": "130301000011010400000000000000", "quantity": 9, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 40, "max_fuel": 15000, "fuel_burn_rate": 12, "speed": 1.5, "capacity": 0 },
+      { "id": "f15e", "label": "F-15E Strike Eagle", "sidc": "130301000011010400000000000000", "quantity": 9, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 50, "max_fuel": 18000, "fuel_burn_rate": 18, "speed": 1.8, "capacity": 0 },
+      { "id": "f35a", "label": "F-35A Lightning", "sidc": "130301000011010400000000000000", "quantity": 6, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 60, "max_fuel": 20000, "fuel_burn_rate": 15, "speed": 1.6, "capacity": 0 },
+      { "id": "f22", "label": "F-22 Raptor", "sidc": "130301000011010400000000000000", "quantity": 6, "home_base": "base_utapao", "role": "FIGHTER", "aoe_radius": 60, "max_fuel": 25000, "fuel_burn_rate": 20, "speed": 2.0, "capacity": 0 },
+      { "id": "c130", "label": "C-130 Hercules", "sidc": "130301000011011300000000000000", "quantity": 3, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 20000, "fuel_burn_rate": 8, "speed": 0.6, "capacity": 80 },
+      { "id": "c17", "label": "C-17 Globemaster", "sidc": "130301000011010700000000000000", "quantity": 6, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 45000, "fuel_burn_rate": 25, "speed": 0.8, "capacity": 150 },
+      { "id": "c5m", "label": "C-5M Galaxy", "sidc": "130301000011010700000000000000", "quantity": 3, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 10, "max_fuel": 75000, "fuel_burn_rate": 35, "speed": 0.8, "capacity": 300 },
+      { "id": "kc135", "label": "KC-135 Stratotanker", "sidc": "130301000011010900000000000000", "quantity": 1, "home_base": "base_utapao", "role": "TANKER", "aoe_radius": 20, "transfer_rate": 1000, "max_fuel": 30000, "fuel_burn_rate": 15, "speed": 0.8, "capacity": 0 },
+      { "id": "cv22b", "label": "CV-22B Osprey", "sidc": "130301000011011300000000000000", "quantity": 4, "home_base": "base_utapao", "role": "TRANSPORT", "aoe_radius": 5, "max_fuel": 12000, "fuel_burn_rate": 10, "speed": 0.4, "capacity": 24 },
+      { "id": "p8", "label": "P-8 Poseidon", "sidc": "130301000011011100000000000000", "quantity": 1, "home_base": "base_basa", "role": "ISR", "aoe_radius": 150, "max_fuel": 30000, "fuel_burn_rate": 10, "speed": 0.7, "capacity": 0 }
     ],
     "inject_triggers": [
       {
@@ -56,7 +56,7 @@
         "deadline_tick": 100,
         "priority": "HIGH",
         "map_visible": true,
-        "sidc": "WGP-W-----------"
+        "sidc": "130440000017020300000000000000"
       },
       {
         "tick": 25,
@@ -68,7 +68,7 @@
         "deadline_tick": 75,
         "priority": "CRITICAL",
         "map_visible": true,
-        "sidc": "WGP-R-----------"
+        "sidc": "130440000016010000000000000000"
       }
     ]
   }

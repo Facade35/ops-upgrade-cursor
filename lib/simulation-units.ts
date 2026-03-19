@@ -127,29 +127,58 @@ export function isWithinAoe(
 export function applyMovementTick(units: SpawnedUnit[]): SpawnedUnit[] {
   return units.map((unit) => {
     if (unit.status !== "AIRBORNE") return unit;
-    if (typeof unit.target_lat !== "number" || typeof unit.target_lng !== "number") {
+    const route = unit.route ?? [];
+    let routeIndex = unit.route_index ?? 0;
+    let targetLat =
+      typeof unit.target_lat === "number" ? unit.target_lat : undefined;
+    let targetLng =
+      typeof unit.target_lng === "number" ? unit.target_lng : undefined;
+
+    if (
+      route.length > 0 &&
+      (typeof targetLat !== "number" || typeof targetLng !== "number")
+    ) {
+      const waypoint = route[Math.max(0, Math.min(route.length - 1, routeIndex))];
+      targetLat = waypoint.lat;
+      targetLng = waypoint.lng;
+    }
+
+    if (typeof targetLat !== "number" || typeof targetLng !== "number") {
       return unit;
     }
 
-    const remaining = distanceKm(unit.lat, unit.lng, unit.target_lat, unit.target_lng);
+    const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
     if (remaining <= 0) return unit;
 
     const stepKm = Math.max(0, unit.speed);
     if (stepKm <= 0) return unit;
 
     if (stepKm >= remaining) {
+      let nextIndex = routeIndex;
+      let nextTargetLat = targetLat;
+      let nextTargetLng = targetLng;
+      if (route.length > 0) {
+        nextIndex = (routeIndex + 1) % route.length;
+        nextTargetLat = route[nextIndex].lat;
+        nextTargetLng = route[nextIndex].lng;
+      }
       return {
         ...unit,
-        lat: unit.target_lat,
-        lng: unit.target_lng,
+        lat: targetLat,
+        lng: targetLng,
+        route_index: route.length > 0 ? nextIndex : unit.route_index,
+        target_lat: nextTargetLat,
+        target_lng: nextTargetLng,
       };
     }
 
     const ratio = stepKm / remaining;
     return {
       ...unit,
-      lat: unit.lat + (unit.target_lat - unit.lat) * ratio,
-      lng: unit.lng + (unit.target_lng - unit.lng) * ratio,
+      lat: unit.lat + (targetLat - unit.lat) * ratio,
+      lng: unit.lng + (targetLng - unit.lng) * ratio,
+      target_lat: targetLat,
+      target_lng: targetLng,
     };
   });
 }

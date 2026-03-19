@@ -17,7 +17,7 @@
       "lat": 12.6775,
       "lng": 101.0044,
       "fuel_reserves": 1320860,
-      "sidc": "SFGPE---------"
+      "sidc": "130320000012080300000000000000"
     },
     {
       "id": "base_basa",
@@ -25,14 +25,14 @@
       "lat": 14.9856,
       "lng": 120.4931,
       "fuel_reserves": 250000,
-      "sidc": "SFGPE---------"
+      "sidc": "130320000012080300000000000000"
     }
   ],
   "assets": [
     {
       "id": "p8",
       "label": "P-8 Poseidon",
-      "sidc": "SFAPMS----------",
+      "sidc": "130301000011011100000000000000",
       "quantity": 1,
       "home_base": "base_basa",
       "role": "ISR",
@@ -48,7 +48,7 @@
     {
       "id": "f15e",
       "label": "F-15E Strike Eagle",
-      "sidc": "SFAPMF----------",
+      "sidc": "130301000011010200000000000000",
       "quantity": 2,
       "home_base": "base_utapao",
       "role": "FIGHTER",
@@ -68,7 +68,7 @@
       "label": "Woody Island Air Base",
       "lat": 16.833,
       "lng": 112.333,
-      "sidc": "SHGPE---------",
+      "sidc": "130620000012080200000000000000",
       "side": "RED"
     }
   ],
@@ -80,7 +80,7 @@
       "home_base": "red_woody",
       "quantity": 2,
       "role": "FIGHTER",
-      "sidc": "SHAPMF----------",
+      "sidc": "130601000011010000000000000000",
       "max_fuel": 15000,
       "fuel_burn_rate": 12,
       "speed": 1.4,
@@ -141,7 +141,7 @@
       "required_response": "MFR",
       "deadline_tick": 18,
       "map_visible": true,
-      "sidc": "GFGPOAI----X"
+      "sidc": "130651000011010000000000000000"
     },
     {
       "tick": 60,
@@ -154,7 +154,7 @@
       "required_response": "COA",
       "deadline_tick": 90,
       "map_visible": true,
-      "sidc": "GFGPOAO----X"
+      "sidc": "130330000012100402000000000000"
     }
   ]
 }

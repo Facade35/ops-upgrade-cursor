@@ -206,6 +206,40 @@ function spawnHostileUnitsForGroup(
   return nextUnits;
 }
 
+function applyRetaskToRedAssets(
+  state: GameState,
+  targetLat: number,
+  targetLng: number,
+  groupIds?: string[]
+): Pick<GameState, "hostileUnits" | "hostileGroups"> {
+  const groupScope = new Set((groupIds ?? []).filter((id) => id.length > 0));
+  const retaskAllGroups = groupScope.size === 0;
+  const appliesToGroup = (groupId: string) =>
+    retaskAllGroups || groupScope.has(groupId);
+
+  const hostileUnits = state.hostileUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE") return unit;
+    if (!appliesToGroup(unit.group_id)) return unit;
+    return {
+      ...unit,
+      target_lat: targetLat,
+      target_lng: targetLng,
+      route: [{ lat: targetLat, lng: targetLng }],
+      route_index: 0,
+    };
+  });
+
+  const hostileGroups = state.hostileGroups.map((group) => {
+    if (!appliesToGroup(group.id)) return group;
+    return {
+      ...group,
+      route: [{ lat: targetLat, lng: targetLng }],
+    };
+  });
+
+  return { hostileUnits, hostileGroups };
+}
+
 function applyEventActions(
   state: GameState,
   firedEvents: GameState["events"],
@@ -246,6 +280,55 @@ function applyEventActions(
           resource: "intel",
           amount: 1,
           note: `No-fly zone ${action.zone_id} activated`,
+          at: new Date(now).toISOString(),
+        });
+      } else if (action.type === "CREATE_NFZ") {
+        const exists = nextState.noFlyZones.some((zone) => zone.id === action.zone.id);
+        const noFlyZones = exists
+          ? nextState.noFlyZones.map((zone) =>
+              zone.id === action.zone.id ? action.zone : zone
+            )
+          : [...nextState.noFlyZones, action.zone];
+        nextState = { ...nextState, noFlyZones };
+        logs.push({
+          id: `${now}-zone-create-${action.zone.id}-${Math.random().toString(36).slice(2, 8)}`,
+          tick,
+          resource: "intel",
+          amount: 1,
+          note: `No-fly zone ${action.zone.label} created`,
+          at: new Date(now).toISOString(),
+        });
+      } else if (action.type === "CREATE_DROP_ZONE") {
+        nextState = {
+          ...nextState,
+          globePoints: [...nextState.globePoints, action.point],
+        };
+        logs.push({
+          id: `${now}-drop-${Math.random().toString(36).slice(2, 8)}`,
+          tick,
+          resource: "intel",
+          amount: 1,
+          note: `Drop zone ${action.point.label ?? "created"}`,
+          at: new Date(now).toISOString(),
+        });
+      } else if (action.type === "RETASK_RED_ASSETS") {
+        const retask = applyRetaskToRedAssets(
+          nextState,
+          action.target_lat,
+          action.target_lng,
+          action.group_ids
+        );
+        nextState = {
+          ...nextState,
+          hostileUnits: retask.hostileUnits,
+          hostileGroups: retask.hostileGroups,
+        };
+        logs.push({
+          id: `${now}-retask-${Math.random().toString(36).slice(2, 8)}`,
+          tick,
+          resource: "intel",
+          amount: 1,
+          note: "Red assets retasked to new location",
           at: new Date(now).toISOString(),
         });
       }

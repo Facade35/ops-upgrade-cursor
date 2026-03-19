@@ -137,9 +137,22 @@ function applyActiveRefuels(
 }
 
 function buildInjectTriggerKey(trigger: InjectTrigger): string {
+  if (typeof trigger.id === "string" && trigger.id.trim().length > 0) {
+    return trigger.id;
+  }
   const lat = typeof trigger.lat === "number" ? trigger.lat.toFixed(4) : "na";
   const lng = typeof trigger.lng === "number" ? trigger.lng.toFixed(4) : "na";
   return `${trigger.tick}:${trigger.title ?? "inject"}:${lat}:${lng}`;
+}
+
+function withTriggerIds(triggers: InjectTrigger[] | undefined): InjectTrigger[] {
+  return (triggers ?? []).map((trigger, index) => ({
+    ...trigger,
+    id:
+      typeof trigger.id === "string" && trigger.id.trim().length > 0
+        ? trigger.id
+        : `inject-trigger-${index + 1}`,
+  }));
 }
 
 function findTransportInjectOnStation(unit: SpawnedUnit): InjectTrigger | null {
@@ -189,7 +202,7 @@ export function loadDefinition(
     units: spawnUnitsFromAssets(definition.assets, definition.bases),
     events: definition.events,
     injects: [],
-    injectTriggers: definition.injectTriggers ?? [],
+    injectTriggers: withTriggerIds(definition.injectTriggers),
     tick: 0,
     // Always start a freshly loaded scenario in a running state.
     // Admin can pause again via the control API if needed.

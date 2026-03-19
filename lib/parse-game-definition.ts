@@ -256,13 +256,19 @@ export function parseDefinition(raw: unknown): GameDefinition {
     for (const t of triggersRaw) {
       if (t && typeof t === "object" && typeof t.tick === "number") {
         injectTriggers.push({
+          id:
+            typeof t.id === "string"
+              ? t.id
+              : `inject-trigger-${injectTriggers.length + 1}`,
           tick: t.tick,
           title: typeof t.title === "string" ? t.title : undefined,
           content: typeof t.content === "string" ? t.content : undefined,
           type: typeof t.type === "string" ? t.type : undefined,
           priority: typeof t.priority === "string" ? t.priority : undefined,
           required_response:
-            t.required_response === "MFR" || t.required_response === "COA"
+            t.required_response === "MFR" ||
+            t.required_response === "COA" ||
+            t.required_response === "NONE"
               ? t.required_response
               : undefined,
           deadline_tick:
@@ -272,6 +278,13 @@ export function parseDefinition(raw: unknown): GameDefinition {
           map_visible:
             typeof t.map_visible === "boolean" ? t.map_visible : undefined,
           sidc: typeof t.sidc === "string" ? t.sidc : undefined,
+          inject_kind:
+            t.inject_kind === "TASK_RED_ASSET" ||
+            t.inject_kind === "CREATE_NFZ" ||
+            t.inject_kind === "CREATE_DROP_ZONE" ||
+            t.inject_kind === "INFO_UPDATE"
+              ? t.inject_kind
+              : undefined,
         });
         if (
           typeof t.lat === "number" &&

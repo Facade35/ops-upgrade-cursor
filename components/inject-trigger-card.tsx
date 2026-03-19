@@ -24,6 +24,9 @@ const TYPE_CLASSES: Record<string, string> = {
 
 /** Stable key for a trigger — used to track responses. */
 export function triggerKey(t: InjectTrigger): string {
+  if (typeof t.id === "string" && t.id.trim().length > 0) {
+    return t.id;
+  }
   return `${t.tick}-${t.title ?? t.content ?? ""}`;
 }
 
@@ -40,6 +43,8 @@ export function InjectTriggerCard({
   responseRecord: InjectResponseRecord | undefined;
 }) {
   const submitted = !!responseRecord;
+  const requiresResponse =
+    trigger.required_response === "MFR" || trigger.required_response === "COA";
 
   // ── Deadline countdown ────────────────────────────────────────────────────
   const [ticksRemaining, setTicksRemaining] = useState<number | null>(null);
@@ -137,7 +142,7 @@ export function InjectTriggerCard({
       )}
 
       {/* Required response hint (no button — go to Actions tab) */}
-      {!submitted && trigger.required_response && (
+      {!submitted && requiresResponse && (
         <p className="mt-1.5 text-[10px] text-zinc-500">
           Response required in <span className="font-semibold text-zinc-400">Actions</span> tab
         </p>

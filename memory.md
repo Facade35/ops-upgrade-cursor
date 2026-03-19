@@ -6,7 +6,7 @@ This is a Next.js web-based Command and Control (C2) simulation for a 14-cadet t
 ## 2. Core Architecture
 - **Stack:** Next.js 14, React, Tailwind CSS, Shadcn UI.
 - **State Management:** Server-authoritative (or persistent BroadcastChannel) syncing between a master `/admin` panel and multiple `/client` dashboards.
-- **Single Source of Truth:** The engine is hydrated exclusively by `test5.json`, which is the single source of truth.
+- **Single Source of Truth:** The engine is hydrated exclusively by `test6.json`, which is the single source of truth.
 - **Template File Check Rule:** Agents must check whether `test6.json` or `test7.json` exists before making assumptions about available scenario data. Current status: neither file exists.
 - **Tick Engine (Critical):** The simulation runs on a global `current_tick` system. Do not use standard real-time `setInterval` for game logic; everything must tie to the global tick.
 
@@ -22,7 +22,7 @@ This is a Next.js web-based Command and Control (C2) simulation for a 14-cadet t
 - **Injects:** Timeline events have specific trigger ticks and remain hidden until that tick is reached.
 
 ## 5. AI Autonomy Rules (CRITICAL FOR FUTURE PROMPTS)
-- **Rule A:** Never modify `test5.json` unless explicitly asked.
+- **Rule A:** Never modify `test6.json` unless explicitly asked.
 - **Rule B:** Always maintain the `Tactical Dark` (`#0a0a0a`) Joint Operations Center (JOC) visual aesthetic with `JetBrains Mono` font.
 - **Rule C:** If proposing a new mechanic, ensure it hooks into the `current_tick` system.
 - **Rule D:** Feel free to update `memory.md` with more pertinent information that may be useful to new agents.

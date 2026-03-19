@@ -14,10 +14,14 @@ import { usePathname } from "next/navigation";
 import type {
   DeploymentMissionType,
   DeploymentRequest,
+  EventAction,
   GameDefinition,
   HostileUnit,
+  InjectKind,
+  InjectResponseRequirement,
   InjectTrigger,
   NoFlyZone,
+  Side,
 } from "@/types/game";
 import type { GameState } from "@/components/game-state-provider";
 import {
@@ -40,6 +44,10 @@ export const SIMULATION_CHANNEL = "glp_simulation_sync";
 const STORAGE_KEY = "glp_session";
 const BASELINE_STORAGE_KEY = "glp_definition_baseline";
 const MAX_INJECT_LOGS = 120;
+
+function createEntityId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // ─── Default state ───────────────────────────────────────────────────────────
 
@@ -258,7 +266,20 @@ function updateTensionKey(
   return next;
 }
 
+function withTriggerIds(triggers: InjectTrigger[] | undefined): InjectTrigger[] {
+  return (triggers ?? []).map((trigger, index) => ({
+    ...trigger,
+    id:
+      typeof trigger.id === "string" && trigger.id.trim().length > 0
+        ? trigger.id
+        : `inject-trigger-${index + 1}`,
+  }));
+}
+
 function buildInjectTriggerKey(trigger: InjectTrigger): string {
+  if (typeof trigger.id === "string" && trigger.id.trim().length > 0) {
+    return trigger.id;
+  }
   const lat = typeof trigger.lat === "number" ? trigger.lat.toFixed(4) : "na";
   const lng = typeof trigger.lng === "number" ? trigger.lng.toFixed(4) : "na";
   return `${trigger.tick}:${trigger.title ?? "inject"}:${lat}:${lng}`;
@@ -309,6 +330,42 @@ function spawnHostileUnitsForGroup(
   return nextUnits;
 }
 
+function applyRetaskToRedAssets(
+  state: GameState,
+  targetLat: number,
+  targetLng: number,
+  groupIds?: string[]
+): Pick<GameState, "hostileUnits" | "hostileGroups"> {
+  const groupScope = new Set(
+    (groupIds ?? []).filter((id) => typeof id === "string" && id.length > 0)
+  );
+  const retaskAllGroups = groupScope.size === 0;
+  const appliesToGroup = (groupId: string) =>
+    retaskAllGroups || groupScope.has(groupId);
+
+  const hostileUnits = state.hostileUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE") return unit;
+    if (!appliesToGroup(unit.group_id)) return unit;
+    return {
+      ...unit,
+      target_lat: targetLat,
+      target_lng: targetLng,
+      route: [{ lat: targetLat, lng: targetLng }],
+      route_index: 0,
+    };
+  });
+
+  const hostileGroups = state.hostileGroups.map((group) => {
+    if (!appliesToGroup(group.id)) return group;
+    return {
+      ...group,
+      route: [{ lat: targetLat, lng: targetLng }],
+    };
+  });
+
+  return { hostileUnits, hostileGroups };
+}
+
 function applyEventActions(state: GameState, eventId: string): GameState {
   const event = state.events.find((candidate) => candidate.id === eventId);
   if (!event || !event.actions || event.actions.length === 0) return state;
@@ -327,6 +384,35 @@ function applyEventActions(state: GameState, eventId: string): GameState {
           : zone
       );
       nextState = { ...nextState, noFlyZones };
+      continue;
+    }
+    if (action.type === "CREATE_NFZ") {
+      const exists = nextState.noFlyZones.some((zone) => zone.id === action.zone.id);
+      const noFlyZones = exists
+        ? nextState.noFlyZones.map((zone) =>
+            zone.id === action.zone.id ? action.zone : zone
+          )
+        : [...nextState.noFlyZones, action.zone];
+      nextState = { ...nextState, noFlyZones };
+      continue;
+    }
+    if (action.type === "CREATE_DROP_ZONE") {
+      const globePoints = [...nextState.globePoints, action.point];
+      nextState = { ...nextState, globePoints };
+      continue;
+    }
+    if (action.type === "RETASK_RED_ASSETS") {
+      const retask = applyRetaskToRedAssets(
+        nextState,
+        action.target_lat,
+        action.target_lng,
+        action.group_ids
+      );
+      nextState = {
+        ...nextState,
+        hostileUnits: retask.hostileUnits,
+        hostileGroups: retask.hostileGroups,
+      };
     }
   }
   return nextState;
@@ -371,6 +457,29 @@ export interface InjectResponseRecord {
   submittedAt: string;
 }
 
+export interface CreateAdminInjectInput {
+  injectKind: InjectKind;
+  title: string;
+  content?: string;
+  tick: number;
+  type?: string;
+  priority?: string;
+  requiredResponse?: InjectResponseRequirement;
+  deadlineTick?: number;
+  lat?: number;
+  lng?: number;
+  mapVisible?: boolean;
+  sidc?: string;
+  executeNow?: boolean;
+  targetLat?: number;
+  targetLng?: number;
+  targetGroupIds?: string[];
+  nfzRadiusKm?: number;
+  nfzAppliesTo?: Side[];
+  warningGraceTicks?: number;
+  dropZoneRadiusKm?: number;
+}
+
 type PersistedStateWithResponses = GameState & {
   injectResponses?: Record<string, InjectResponseRecord>;
 };
@@ -409,6 +518,7 @@ export interface RemoteGameStateContextType {
   setCurrentTick: (tick: number) => void;
   updateInjectEventTick: (id: string, tick: number) => Promise<boolean>;
   triggerInjectEventNow: (id: string) => Promise<boolean>;
+  createAdminInject: (input: CreateAdminInjectInput) => Promise<boolean>;
   /** Cadet response submissions keyed by triggerId ("tick-title") */
   injectResponses: Record<string, InjectResponseRecord>;
   /** Cadet: submit a response to an inject trigger; broadcasts to all tabs */
@@ -656,7 +766,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         assets: definition.assets,
         units: spawnUnitsFromAssets(definition.assets, definition.bases),
         events: definition.events,
-        injectTriggers: definition.injectTriggers ?? [],
+        injectTriggers: withTriggerIds(definition.injectTriggers),
         hostileBases: definition.hostileBases ?? [],
         hostileGroups: definition.hostileGroups ?? [],
         hostileUnits: [],
@@ -816,6 +926,218 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         ),
       };
       const next = applyEventActions(nextWithInjects, id);
+      await persistAndPublish(next, "tick_update");
+      return true;
+    },
+    [persistAndPublish]
+  );
+
+  const createAdminInject = useCallback(
+    async (input: CreateAdminInjectInput) => {
+      const title = input.title?.trim();
+      if (!title) return false;
+      const requestedTick = Number.isFinite(input.tick)
+        ? Math.max(1, Math.floor(input.tick))
+        : stateRef.current.tick;
+      const executeNow =
+        input.executeNow === true || requestedTick <= stateRef.current.tick;
+      const tick = executeNow ? stateRef.current.tick : requestedTick;
+      const triggerId = createEntityId("inject");
+
+      const requiredResponse =
+        input.requiredResponse === "MFR" || input.requiredResponse === "COA"
+          ? input.requiredResponse
+          : undefined;
+      const defaultType =
+        input.injectKind === "INFO_UPDATE" ? "INTEL" : "OPS";
+      const trigger: InjectTrigger = {
+        id: triggerId,
+        tick,
+        title,
+        content: input.content?.trim() || undefined,
+        type: input.type?.trim() || defaultType,
+        priority: input.priority?.trim() || undefined,
+        required_response: requiredResponse,
+        deadline_tick:
+          typeof input.deadlineTick === "number" && Number.isFinite(input.deadlineTick)
+            ? Math.max(tick, Math.floor(input.deadlineTick))
+            : undefined,
+        map_visible: input.mapVisible ?? true,
+        sidc: input.sidc?.trim() || undefined,
+        inject_kind: input.injectKind,
+      };
+      if (typeof input.lat === "number" && typeof input.lng === "number") {
+        trigger.lat = input.lat;
+        trigger.lng = input.lng;
+      }
+
+      let next: GameState = {
+        ...stateRef.current,
+        injectTriggers: [...stateRef.current.injectTriggers, trigger].sort(
+          (a, b) => a.tick - b.tick
+        ),
+      };
+
+      const now = Date.now();
+      const intelLog = {
+        id: createEntityId("injectlog"),
+        tick: next.tick,
+        resource: "intel",
+        amount: 1,
+        note: title,
+        at: new Date(now).toISOString(),
+      };
+
+      const eventNote = input.content?.trim() || title;
+
+      if (input.injectKind === "TASK_RED_ASSET") {
+        if (!Number.isFinite(input.targetLat) || !Number.isFinite(input.targetLng)) {
+          return false;
+        }
+        const targetLat = Number(input.targetLat);
+        const targetLng = Number(input.targetLng);
+        const retaskAction: EventAction = {
+          type: "RETASK_RED_ASSETS",
+          target_lat: targetLat,
+          target_lng: targetLng,
+          group_ids: input.targetGroupIds,
+        };
+        trigger.action_payload = {
+          target_lat: targetLat,
+          target_lng: targetLng,
+          target_group_ids: input.targetGroupIds ?? [],
+        };
+        if (executeNow) {
+          const retask = applyRetaskToRedAssets(
+            next,
+            targetLat,
+            targetLng,
+            input.targetGroupIds
+          );
+          next = {
+            ...next,
+            hostileUnits: retask.hostileUnits,
+            hostileGroups: retask.hostileGroups,
+            injects: [intelLog, ...next.injects].slice(0, MAX_INJECT_LOGS),
+          };
+        } else {
+          next = {
+            ...next,
+            events: [
+              ...next.events,
+              {
+                id: createEntityId("event"),
+                tick,
+                note: eventNote,
+                injects: {},
+                actions: [retaskAction],
+              },
+            ].sort((a, b) => a.tick - b.tick),
+          };
+        }
+      } else if (input.injectKind === "CREATE_NFZ") {
+        if (
+          !Number.isFinite(input.lat) ||
+          !Number.isFinite(input.lng) ||
+          !Number.isFinite(input.nfzRadiusKm)
+        ) {
+          return false;
+        }
+        const zoneLat = Number(input.lat);
+        const zoneLng = Number(input.lng);
+        const zoneRadius = Number(input.nfzRadiusKm);
+        const zone: NoFlyZone = {
+          id: createEntityId("nfz"),
+          label: title,
+          shape: "CIRCLE",
+          center_lat: zoneLat,
+          center_lng: zoneLng,
+          radius_km: Math.max(1, zoneRadius),
+          active: true,
+          applies_to:
+            Array.isArray(input.nfzAppliesTo) && input.nfzAppliesTo.length > 0
+              ? input.nfzAppliesTo
+              : ["RED"],
+          violation_policy: "WARN_THEN_DESTROY",
+          warning_grace_ticks:
+            typeof input.warningGraceTicks === "number"
+              ? Math.max(0, Math.floor(input.warningGraceTicks))
+              : 2,
+        };
+        trigger.action_payload = {
+          zone_id: zone.id,
+          radius_km: zone.radius_km,
+          applies_to: zone.applies_to,
+        };
+        if (executeNow) {
+          next = {
+            ...next,
+            noFlyZones: [...next.noFlyZones, zone],
+            injects: [intelLog, ...next.injects].slice(0, MAX_INJECT_LOGS),
+          };
+        } else {
+          next = {
+            ...next,
+            events: [
+              ...next.events,
+              {
+                id: createEntityId("event"),
+                tick,
+                note: eventNote,
+                injects: {},
+                actions: [{ type: "CREATE_NFZ", zone } as EventAction],
+              },
+            ].sort((a, b) => a.tick - b.tick),
+          };
+        }
+      } else if (input.injectKind === "CREATE_DROP_ZONE") {
+        if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng)) return false;
+        const dropLat = Number(input.lat);
+        const dropLng = Number(input.lng);
+        const point = {
+          lat: dropLat,
+          lng: dropLng,
+          tick,
+          label: title,
+          type: "DROP_ZONE",
+          radius_km:
+            typeof input.dropZoneRadiusKm === "number"
+              ? Math.max(1, input.dropZoneRadiusKm)
+              : undefined,
+        };
+        trigger.action_payload = {
+          radius_km: point.radius_km,
+        };
+        if (executeNow) {
+          next = {
+            ...next,
+            globePoints: [...next.globePoints, point],
+            injects: [intelLog, ...next.injects].slice(0, MAX_INJECT_LOGS),
+          };
+        } else {
+          next = {
+            ...next,
+            events: [
+              ...next.events,
+              {
+                id: createEntityId("event"),
+                tick,
+                note: eventNote,
+                injects: {},
+                actions: [{ type: "CREATE_DROP_ZONE", point } as EventAction],
+              },
+            ].sort((a, b) => a.tick - b.tick),
+          };
+        }
+      } else if (input.injectKind === "INFO_UPDATE") {
+        if (executeNow) {
+          next = {
+            ...next,
+            injects: [intelLog, ...next.injects].slice(0, MAX_INJECT_LOGS),
+          };
+        }
+      }
+
       await persistAndPublish(next, "tick_update");
       return true;
     },
@@ -1096,6 +1418,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setCurrentTick,
       updateInjectEventTick,
       triggerInjectEventNow,
+      createAdminInject,
       injectResponses,
       submitInjectResponse,
       submitDeploymentRequest,
@@ -1123,6 +1446,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setCurrentTick,
       updateInjectEventTick,
       triggerInjectEventNow,
+      createAdminInject,
       injectResponses,
       submitInjectResponse,
       submitDeploymentRequest,
