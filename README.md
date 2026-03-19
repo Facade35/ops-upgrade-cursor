@@ -1,7 +1,7 @@
 ## 1) Project Title & Overview
 
 **Title:** JADC2 Simulation Sandbox  
-**Overview:** A high-fidelity, Next.js web-based Command and Control (C2) simulation designed for a 14-cadet team. It tests logistics, delegation, and tactical decision-making during a Pacific theater scenario.
+**Overview:** A high-fidelity, Next.js web-based Command and Control (C2) simulation designed for a 14-cadet team. It tests logistics, delegation, and tactical decision-making during any* theater scenario.
 
 ---
 
