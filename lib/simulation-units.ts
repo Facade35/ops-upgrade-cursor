@@ -51,7 +51,7 @@ export function applyInitialAirborne(
   placements: GameDefinition["initialAirborne"]
 ): SpawnedUnit[] {
   if (!placements || placements.length === 0) return units;
-  const nextUnits = units.map((unit) => {
+  const nextUnits: SpawnedUnit[] = units.map((unit): SpawnedUnit => {
     const [assetId, rawIndex] = unit.id.split("-");
     const unitIndex = Number(rawIndex);
     const placement = placements.find(
@@ -62,7 +62,7 @@ export function applyInitialAirborne(
     if (!placement) return unit;
     return {
       ...unit,
-      status: "AIRBORNE",
+      status: "AIRBORNE" as const,
       current_base: null,
       lat: placement.lat,
       lng: placement.lng,
