@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import type { GameState } from "@/components/game-state-provider";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
+import { resolveFighterEngagements } from "@/lib/air-combat";
 import {
   applyFuelTick,
   applyMovementTick,
@@ -197,6 +198,7 @@ function spawnHostileUnitsForGroup(
       max_fuel: group.max_fuel,
       fuel_burn_rate: group.fuel_burn_rate,
       speed: group.speed,
+      aoe_radius: group.aoe_radius,
       sensor_range_km: group.sensor_range_km,
       engagement_range_km: group.engagement_range_km,
       combat_rating: group.combat_rating,
@@ -522,17 +524,25 @@ function computeNextTickState(state: GameState): GameState {
     nextTick,
     now
   );
-  const knownTracks = rebuildKnownTracks(
+  const airCombatStep = resolveFighterEngagements(
     workingState.units,
     nfzStep.hostileUnits,
+    nextTick,
+    now
+  );
+  const knownTracks = rebuildKnownTracks(
+    airCombatStep.units,
+    airCombatStep.hostileUnits,
     nextTick
   );
 
   return {
     ...workingState,
-    hostileUnits: nfzStep.hostileUnits,
+    units: airCombatStep.units,
+    hostileUnits: airCombatStep.hostileUnits,
     knownTracks,
     injects: [
+      ...airCombatStep.logs,
       ...nfzStep.logs,
       ...eventActionStep.logs,
       ...nextInjects,

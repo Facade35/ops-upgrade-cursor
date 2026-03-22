@@ -1,0 +1,101 @@
+{
+  "scenario_metadata": {
+    "title": "Operation Dogfight Slice",
+    "description": "AOE dogfight slice with initial airborne blue fighter and delayed red launch.",
+    "tick_rate": 1,
+    "starting_location": { "lat": 14.0, "lng": 114.0 }
+  },
+  "resources": {
+    "Tension": 30,
+    "JP8 Fuel (gal)": 900000,
+    "MREs": 15000
+  },
+  "bases": [
+    {
+      "id": "base_basa",
+      "label": "Cesar Basa AB",
+      "lat": 14.9856,
+      "lng": 120.4931,
+      "fuel_reserves": 350000,
+      "sidc": "130320000012080300000000000000"
+    }
+  ],
+  "assets": [
+    {
+      "id": "f35a",
+      "label": "F-35A Lightning",
+      "sidc": "130301000011010400000000000000",
+      "quantity": 2,
+      "home_base": "base_basa",
+      "role": "FIGHTER",
+      "max_fuel": 20000,
+      "fuel_burn_rate": 12,
+      "aoe_radius": 95,
+      "speed": 2,
+      "capacity": 0,
+      "combat_rating": 0,
+      "side": "BLUE"
+    }
+  ],
+  "initial_airborne": [
+    {
+      "asset_id": "f35a",
+      "unit_index": 1,
+      "lat": 14.0,
+      "lng": 113.0,
+      "mission_type": "Strike",
+      "target_lat": 14.0,
+      "target_lng": 114.0
+    }
+  ],
+  "hostile_bases": [
+    {
+      "id": "red_cap_base",
+      "label": "Red CAP Start",
+      "lat": 14.8983,
+      "lng": 114.0,
+      "sidc": "130620000012080200000000000000",
+      "side": "RED"
+    }
+  ],
+  "hostile_groups": [
+    {
+      "id": "red_j11_alpha",
+      "label": "J-11 CAP Alpha",
+      "side": "RED",
+      "home_base": "red_cap_base",
+      "quantity": 1,
+      "role": "FIGHTER",
+      "sidc": "130601000011010000000000000000",
+      "max_fuel": 16000,
+      "fuel_burn_rate": 11,
+      "speed": 1.3,
+      "aoe_radius": 100,
+      "combat_rating": 58,
+      "route": [{ "lat": 14.0, "lng": 114.0 }]
+    }
+  ],
+  "events": [
+    {
+      "id": "ev_red_launch_t10",
+      "tick": 10,
+      "note": "Red J-11 launches and pushes toward blue track.",
+      "injects": { "Tension": 3 },
+      "actions": [{ "type": "SPAWN_HOSTILE_GROUP", "group_id": "red_j11_alpha" }]
+    }
+  ],
+  "inject_triggers": [
+    {
+      "tick": 10,
+      "type": "INTEL",
+      "title": "Red Fighter Launch",
+      "content": "Red J-11 is airborne and closing from the north.",
+      "lat": 14.8983,
+      "lng": 114.0,
+      "priority": "HIGH",
+      "required_response": "NONE",
+      "map_visible": true,
+      "sidc": "130651000011010000000000000000"
+    }
+  ]
+}

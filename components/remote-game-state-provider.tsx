@@ -25,6 +25,7 @@ import type {
 } from "@/types/game";
 import type { GameState } from "@/components/game-state-provider";
 import {
+  applyInitialAirborne,
   distanceKm,
   estimateFuelRequired,
   isWithinAoe,
@@ -321,6 +322,7 @@ function spawnHostileUnitsForGroup(
       max_fuel: group.max_fuel,
       fuel_burn_rate: group.fuel_burn_rate,
       speed: group.speed,
+      aoe_radius: group.aoe_radius,
       sensor_range_km: group.sensor_range_km,
       engagement_range_km: group.engagement_range_km,
       combat_rating: group.combat_rating,
@@ -757,6 +759,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       fileName: string,
       initialTickRate?: number
     ) => {
+      const spawnedUnits = spawnUnitsFromAssets(definition.assets, definition.bases);
       const next: GameState = {
         ...defaultState,
         scenarioTitle: definition.scenarioTitle ?? null,
@@ -764,7 +767,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         resources: definition.resources,
         bases: definition.bases,
         assets: definition.assets,
-        units: spawnUnitsFromAssets(definition.assets, definition.bases),
+        units: applyInitialAirborne(spawnedUnits, definition.initialAirborne),
         events: definition.events,
         injectTriggers: withTriggerIds(definition.injectTriggers),
         hostileBases: definition.hostileBases ?? [],

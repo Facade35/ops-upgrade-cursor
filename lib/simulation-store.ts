@@ -8,6 +8,7 @@ import type {
   SpawnedUnit,
 } from "@/types/game";
 import {
+  applyInitialAirborne,
   applyFuelTick,
   applyMovementTick,
   distanceKm,
@@ -194,12 +195,13 @@ export function loadDefinition(
   fileName: string,
   initialTickRate?: number
 ) {
+  const spawnedUnits = spawnUnitsFromAssets(definition.assets, definition.bases);
   const next: SimulationState = {
     ...state,
     resources: definition.resources,
     bases: definition.bases,
     assets: definition.assets,
-    units: spawnUnitsFromAssets(definition.assets, definition.bases),
+    units: applyInitialAirborne(spawnedUnits, definition.initialAirborne),
     events: definition.events,
     injects: [],
     injectTriggers: withTriggerIds(definition.injectTriggers),

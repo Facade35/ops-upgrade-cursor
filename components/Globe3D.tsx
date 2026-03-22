@@ -135,7 +135,9 @@ export default function Globe3D() {
   const pointsData = state.globePoints.filter(
     (point) => point.tick == null || point.tick <= state.tick
   );
-  const airborneUnits = state.units.filter((unit) => unit.status === "AIRBORNE");
+  const airborneUnits = state.units.filter(
+    (unit) => unit.status !== "DESTROYED" && unit.status === "AIRBORNE"
+  );
   const hostileAirborneUnits = state.hostileUnits.filter(
     (unit) => unit.status === "AIRBORNE"
   );

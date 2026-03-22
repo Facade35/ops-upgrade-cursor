@@ -15,11 +15,13 @@
         "class-variance-authority": "latest",
         "clsx": "latest",
         "lucide-react": "latest",
+        "mapbox-gl": "^3.20.0",
         "milsymbol": "^3.0.4",
         "next": "latest",
         "react": "latest",
         "react-dom": "latest",
         "react-globe.gl": "latest",
+        "react-map-gl": "^8.1.0",
         "tailwind-merge": "latest",
         "three": "latest"
     },

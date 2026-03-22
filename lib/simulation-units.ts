@@ -1,4 +1,4 @@
-import type { Asset, Base, SpawnedUnit } from "@/types/game";
+import type { Asset, Base, GameDefinition, SpawnedUnit } from "@/types/game";
 
 export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUnit[] {
   const baseById = new Map(bases.map((base) => [base.id, base]));
@@ -38,11 +38,46 @@ export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUni
         side: asset.side,
         sensor_range_km: asset.sensor_range_km,
         detection_strength: asset.detection_strength,
+        combat_rating: asset.combat_rating,
       });
     }
   }
 
   return units;
+}
+
+export function applyInitialAirborne(
+  units: SpawnedUnit[],
+  placements: GameDefinition["initialAirborne"]
+): SpawnedUnit[] {
+  if (!placements || placements.length === 0) return units;
+  const nextUnits = units.map((unit) => {
+    const [assetId, rawIndex] = unit.id.split("-");
+    const unitIndex = Number(rawIndex);
+    const placement = placements.find(
+      (candidate) =>
+        candidate.asset_id === assetId &&
+        (candidate.unit_index ?? 1) === (Number.isFinite(unitIndex) ? unitIndex : 1)
+    );
+    if (!placement) return unit;
+    return {
+      ...unit,
+      status: "AIRBORNE",
+      current_base: null,
+      lat: placement.lat,
+      lng: placement.lng,
+      mission_type: placement.mission_type ?? unit.mission_type,
+      target_lat:
+        typeof placement.target_lat === "number"
+          ? placement.target_lat
+          : unit.target_lat,
+      target_lng:
+        typeof placement.target_lng === "number"
+          ? placement.target_lng
+          : unit.target_lng,
+    };
+  });
+  return nextUnits;
 }
 
 export function applyFuelTick(
@@ -53,6 +88,9 @@ export function applyFuelTick(
   const baseById = new Map(nextBases.map((base) => [base.id, base]));
 
   const nextUnits = units.map((unit) => {
+    if (unit.status === "DESTROYED") {
+      return unit;
+    }
     if (unit.status === "AIRBORNE") {
       return {
         ...unit,
@@ -126,6 +164,7 @@ export function isWithinAoe(
 
 export function applyMovementTick(units: SpawnedUnit[]): SpawnedUnit[] {
   return units.map((unit) => {
+    if (unit.status === "DESTROYED") return unit;
     if (unit.status !== "AIRBORNE") return unit;
     const route = unit.route ?? [];
     let routeIndex = unit.route_index ?? 0;

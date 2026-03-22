@@ -12,6 +12,7 @@ This is a Next.js web-based Command and Control (C2) simulation for a 14-cadet t
 
 ## 3. Visual Engine (react-globe.gl & Three.js)
 - **Icons:** Rendered via the `milsymbol` library using NATO standard SIDC.
+- **SIDC Format:** Use the 30-digit SIDC numeric format for symbol identification, aligned with the Battle Staff Tools Unit Generator reference.
 - **Movement:** Vector-based interpolation across the globe over time.
 - **AOE Rings:** Rendered as `customThreeObject` using Three.js `RingGeometry`. Their altitudes MUST precisely match the asset marker altitudes to prevent 3D parallax illusions. Ring colors map to unit role.
 

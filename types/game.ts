@@ -36,9 +36,14 @@ export interface Asset {
   side?: Side;
   sensor_range_km?: number;
   detection_strength?: number;
+  combat_rating?: number;
 }
 
-export type UnitStatus = "GROUNDED" | "AIRBORNE" | "PENDING_APPROVAL";
+export type UnitStatus =
+  | "GROUNDED"
+  | "AIRBORNE"
+  | "PENDING_APPROVAL"
+  | "DESTROYED";
 export type DeploymentMissionType =
   | "ISR"
   | "Strike"
@@ -76,6 +81,7 @@ export interface SpawnedUnit {
   side?: Side;
   sensor_range_km?: number;
   detection_strength?: number;
+  combat_rating?: number;
   route?: Array<{ lat: number; lng: number }>;
   route_index?: number;
 }
@@ -126,6 +132,7 @@ export interface HostileGroupDefinition {
   max_fuel: number;
   fuel_burn_rate: number;
   speed: number;
+  aoe_radius?: number;
   sensor_range_km?: number;
   engagement_range_km?: number;
   combat_rating?: number;
@@ -152,6 +159,7 @@ export interface HostileUnit {
   max_fuel: number;
   fuel_burn_rate: number;
   speed: number;
+  aoe_radius?: number;
   sensor_range_km?: number;
   engagement_range_km?: number;
   combat_rating?: number;
@@ -235,6 +243,16 @@ export interface InjectTrigger {
   action_payload?: Record<string, unknown>;
 }
 
+export interface InitialAirbornePlacement {
+  asset_id: string;
+  unit_index?: number;
+  lat: number;
+  lng: number;
+  mission_type?: DeploymentMissionType;
+  target_lat?: number;
+  target_lng?: number;
+}
+
 export interface GameDefinition {
   resources: ResourceMap;
   bases: Base[];
@@ -245,6 +263,7 @@ export interface GameDefinition {
   hostileBases?: HostileBase[];
   hostileGroups?: HostileGroupDefinition[];
   noFlyZones?: NoFlyZone[];
+  initialAirborne?: InitialAirbornePlacement[];
   scenarioTitle?: string;
 }
 

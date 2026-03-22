@@ -15,7 +15,11 @@ import type {
   ResourceMap,
   SpawnedUnit,
 } from "@/types/game";
-import { applyFuelTick, spawnUnitsFromAssets } from "@/lib/simulation-units";
+import {
+  applyFuelTick,
+  applyInitialAirborne,
+  spawnUnitsFromAssets,
+} from "@/lib/simulation-units";
 
 export interface GameState {
   resources: ResourceMap;
@@ -135,14 +139,18 @@ function withTriggerIds(triggers: InjectTrigger[] | undefined): InjectTrigger[] 
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "LOAD_DEFINITION": {
+      const spawnedUnits = spawnUnitsFromAssets(
+        action.payload.definition.assets,
+        action.payload.definition.bases
+      );
       const next = {
         ...state,
         resources: action.payload.definition.resources,
         bases: action.payload.definition.bases,
         assets: action.payload.definition.assets,
-        units: spawnUnitsFromAssets(
-          action.payload.definition.assets,
-          action.payload.definition.bases
+        units: applyInitialAirborne(
+          spawnedUnits,
+          action.payload.definition.initialAirborne
         ),
         events: action.payload.definition.events,
         injects: [],

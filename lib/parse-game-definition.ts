@@ -1,6 +1,7 @@
 import type {
   Asset,
   Base,
+  DeploymentMissionType,
   EventAction,
   GameDefinition,
   GlobePoint,
@@ -46,6 +47,14 @@ function parseSide(value: unknown, fallback: Side = "BLUE"): Side {
   if (typeof value !== "string") return fallback;
   const normalized = value.trim().toUpperCase();
   return normalized === "RED" ? "RED" : "BLUE";
+}
+
+function parseMissionType(value: unknown): DeploymentMissionType | undefined {
+  if (value === "ISR") return "ISR";
+  if (value === "Strike") return "Strike";
+  if (value === "Transport") return "Transport";
+  if (value === "Search & Rescue") return "Search & Rescue";
+  return undefined;
 }
 
 export function parseDefinition(raw: unknown): GameDefinition {
@@ -125,6 +134,11 @@ export function parseDefinition(raw: unknown): GameDefinition {
       Number.isFinite(asset.detection_strength)
         ? Math.max(0, Math.min(100, asset.detection_strength))
         : undefined;
+    const combatRating =
+      typeof asset.combat_rating === "number" &&
+      Number.isFinite(asset.combat_rating)
+        ? Math.max(0, Math.min(100, asset.combat_rating))
+        : undefined;
 
     const parsedAsset: Asset = {
       id,
@@ -165,6 +179,9 @@ export function parseDefinition(raw: unknown): GameDefinition {
     }
     if (typeof detectionStrength === "number") {
       parsedAsset.detection_strength = detectionStrength;
+    }
+    if (typeof combatRating === "number") {
+      parsedAsset.combat_rating = combatRating;
     }
     assets.push(parsedAsset);
   });
@@ -363,6 +380,10 @@ export function parseDefinition(raw: unknown): GameDefinition {
         typeof group.speed === "number" && Number.isFinite(group.speed)
           ? Math.max(0, group.speed)
           : 0;
+      const aoeRadius =
+        typeof group.aoe_radius === "number" && Number.isFinite(group.aoe_radius)
+          ? Math.max(0, group.aoe_radius)
+          : undefined;
       const routeRaw = Array.isArray(group.route) ? group.route : [];
       const route = routeRaw
         .map((waypoint) => {
@@ -419,6 +440,7 @@ export function parseDefinition(raw: unknown): GameDefinition {
         max_fuel: maxFuel,
         fuel_burn_rate: fuelBurnRate,
         speed,
+        ...(typeof aoeRadius === "number" ? { aoe_radius: aoeRadius } : {}),
         ...(typeof sensorRangeKm === "number"
           ? { sensor_range_km: sensorRangeKm }
           : {}),
@@ -486,6 +508,49 @@ export function parseDefinition(raw: unknown): GameDefinition {
     })
     .filter((zone): zone is NoFlyZone => zone !== null);
 
+  const initialAirborneRaw = Array.isArray(obj.initial_airborne)
+    ? obj.initial_airborne
+    : [];
+  const initialAirborne: NonNullable<GameDefinition["initialAirborne"]> =
+    initialAirborneRaw
+      .map((rawPlacement) => {
+        if (
+          !rawPlacement ||
+          typeof rawPlacement !== "object" ||
+          Array.isArray(rawPlacement)
+        ) {
+          return null;
+        }
+        const placement = rawPlacement as Record<string, unknown>;
+        const assetId =
+          typeof placement.asset_id === "string" ? placement.asset_id : null;
+        const lat = typeof placement.lat === "number" ? placement.lat : undefined;
+        const lng = typeof placement.lng === "number" ? placement.lng : undefined;
+        if (!assetId || lat == null || lng == null) return null;
+
+        const unitIndex =
+          typeof placement.unit_index === "number" &&
+          Number.isFinite(placement.unit_index)
+            ? Math.max(1, Math.floor(placement.unit_index))
+            : undefined;
+        const missionType = parseMissionType(placement.mission_type);
+        const targetLat =
+          typeof placement.target_lat === "number" ? placement.target_lat : undefined;
+        const targetLng =
+          typeof placement.target_lng === "number" ? placement.target_lng : undefined;
+
+        return {
+          asset_id: assetId,
+          lat,
+          lng,
+          ...(typeof unitIndex === "number" ? { unit_index: unitIndex } : {}),
+          ...(missionType ? { mission_type: missionType } : {}),
+          ...(typeof targetLat === "number" ? { target_lat: targetLat } : {}),
+          ...(typeof targetLng === "number" ? { target_lng: targetLng } : {}),
+        };
+      })
+      .filter((placement) => placement !== null);
+
   return {
     resources,
     bases,
@@ -496,6 +561,7 @@ export function parseDefinition(raw: unknown): GameDefinition {
     hostileBases,
     hostileGroups,
     noFlyZones,
+    ...(initialAirborne.length > 0 ? { initialAirborne } : {}),
     scenarioTitle,
   };
 }
