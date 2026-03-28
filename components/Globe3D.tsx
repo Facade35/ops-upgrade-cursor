@@ -380,7 +380,7 @@ export default function Globe3D() {
       </CardHeader>
       <CardContent className="min-h-[72vh] px-2 pb-2">
         <div
-          className="globe-color relative flex h-[72vh] min-h-[560px] w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+          className="globe-color relative flex h-[72vh] min-h-[560px] w-full items-center justify-center rounded-xl bg-black"
           style={{ filter: "none" }}
         >
           <div className="scanline-overlay"></div>

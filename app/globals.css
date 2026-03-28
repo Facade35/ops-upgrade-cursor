@@ -78,6 +78,11 @@
   filter: brightness(0.7) contrast(1.2) !important;
 }
 
+.globe-color > div,
+.globe-color canvas {
+  border-radius: inherit;
+}
+
 .scanline-overlay {
   position: absolute;
   inset: 0;
