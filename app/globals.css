@@ -140,7 +140,7 @@
   bottom: 130%;
   transform: translateX(-50%) translateY(0);
   min-width: 180px;
-  max-width: 260px;
+  max-width: 340px;
   padding: 6px 8px;
   border-radius: 0.5rem;
   background: rgba(15, 23, 42, 0.96);
@@ -152,7 +152,8 @@
   pointer-events: none;
   transition: opacity 120ms ease-out, transform 120ms ease-out;
   z-index: 20;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .glp-tooltip::after {
@@ -178,6 +179,7 @@
 
 .glp-tooltip-row {
   opacity: 0.9;
+  white-space: normal;
 }
 
 .glp-tooltip-label {
