@@ -75,8 +75,8 @@
   - Admin receives AI-advised action suggestions for execution.
 - [ ] **Doctrine Execution Expansion**
   - Extend interactive map doctrine so tanker-to-fighter fuel transfer and transport airdrop inject completion become richer, more automated mission interactions.
-- [ ] **Advanced Map Filtering**
-  - Cadet controls to hide/show unit roles, AOE rings, hostile tracks, and inject markers to reduce visual clutter.
+- [ ] **Multigame System**
+  - Several different instances handled simultaneously via supabase.
 
 ---
 
