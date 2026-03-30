@@ -14,6 +14,34 @@ export type Side = "BLUE" | "RED";
 export type HostileUnitStatus = "AIRBORNE" | "DESTROYED";
 export type NoFlyZonePolicy = "WARN_THEN_DESTROY";
 export type InjectResponseRequirement = "MFR" | "COA" | "NONE";
+export type GradingStrictness =
+  | "COACHING"
+  | "BALANCED"
+  | "MISSION_READY"
+  | "ZERO_TOLERANCE";
+
+export type GradeVerdict = "accept" | "accept_with_inject" | "resubmit";
+
+export interface EvaluationGrade {
+  summary: string;
+  verdict: GradeVerdict;
+  faults: string[];
+  recommendations?: string[];
+}
+
+export interface InjectProposal {
+  title: string;
+  content?: string;
+  tick?: number;
+  type?: string;
+  priority?: string;
+  required_response?: InjectResponseRequirement;
+  deadline_tick?: number;
+  lat?: number;
+  lng?: number;
+  map_visible?: boolean;
+  sidc?: string;
+}
 export type InjectKind =
   | "TASK_RED_ASSET"
   | "CREATE_NFZ"
@@ -241,6 +269,7 @@ export interface InjectTrigger {
   sidc?: string;
   inject_kind?: InjectKind;
   action_payload?: Record<string, unknown>;
+  strictness?: GradingStrictness;
 }
 
 export interface InitialAirbornePlacement {

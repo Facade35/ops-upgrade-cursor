@@ -73,6 +73,37 @@ export function InjectTriggerCard({
   const typeCls = trigger.type
     ? (TYPE_CLASSES[trigger.type] ?? "bg-zinc-700/70 text-zinc-200")
     : null;
+  const submissionStatus = (() => {
+    if (!responseRecord) return null;
+    switch (responseRecord.status) {
+      case "pending":
+        return {
+          label: "⏳ Pending Grading",
+          className: "text-amber-500",
+        };
+      case "resubmit_required":
+        return {
+          label: "⚠ Resubmit Required",
+          className: "text-red-400",
+        };
+      case "error":
+        return {
+          label: "✖ Grading Error",
+          className: "text-red-400",
+        };
+      case "expired":
+        return {
+          label: "Missed Deadline",
+          className: "text-zinc-400",
+        };
+      case "graded":
+      default:
+        return {
+          label: "✓ Graded",
+          className: "text-emerald-400",
+        };
+    }
+  })();
 
   return (
     <div
@@ -135,9 +166,11 @@ export function InjectTriggerCard({
       )}
 
       {/* Status after submission */}
-      {submitted && (
-        <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500">
-          ⏳ Pending AI Grading
+      {submitted && submissionStatus && (
+        <div
+          className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wider ${submissionStatus.className}`}
+        >
+          {submissionStatus.label}
         </div>
       )}
 

@@ -555,7 +555,8 @@ function computeNextTickState(state: GameState): GameState {
 export function useAdminTickEngine(persistEveryTicks = 50) {
   const pathname = usePathname();
   const isAdmin = pathname === "/admin";
-  const { state, syncState, broadcastState, injectResponses } = useRemoteGameState();
+  const { state, syncState, broadcastState, injectResponses, gradeInjectResponse } =
+    useRemoteGameState();
   const stateRef = useRef(state);
   const intervalSeqRef = useRef(0);
   stateRef.current = state;
@@ -569,6 +570,28 @@ export function useAdminTickEngine(persistEveryTicks = 50) {
       const beforeTick = prev.tick;
       const beforeInjectTopId = prev.injects[0]?.id ?? null;
       const next = computeNextTickState(prev);
+
+      // Auto-handle missed deadlines: if a required response is overdue and none submitted, trigger grading
+      const overdueTriggers = next.injectTriggers.filter(
+        (t) =>
+          (t.required_response === "MFR" || t.required_response === "COA") &&
+          typeof t.deadline_tick === "number" &&
+          t.deadline_tick <= next.tick
+      );
+      for (const t of overdueTriggers) {
+        const key = t.id ?? `${t.tick}-${t.title ?? "inject"}`;
+        const response = injectResponses[key];
+        // Only auto-grade true no-submission cases after deadline.
+        if (!response) {
+          void gradeInjectResponse(key, {
+            responseType: t.required_response === "MFR" ? "MFR" : "COA",
+            content: "NO SUBMISSION RECEIVED BEFORE DEADLINE.",
+            strictness: t.strictness ?? "BALANCED",
+            missedDeadline: true,
+          });
+        }
+      }
+
       const afterInjectTopId = next.injects[0]?.id ?? null;
       const injectChanged =
         next.injects.length !== prev.injects.length ||
@@ -601,6 +624,7 @@ export function useAdminTickEngine(persistEveryTicks = 50) {
     state.paused,
     state.tickRate,
     injectResponses,
+    gradeInjectResponse,
     persistEveryTicks,
     syncState,
     broadcastState,

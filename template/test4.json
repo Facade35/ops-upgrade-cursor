@@ -2,7 +2,7 @@
   "scenario_metadata": {
     "title": "Operation Rising Tide",
     "description": "Joint All-Domain evacuation and management mission. U.S. forces must manage refugee evacuation and regional stability.",
-    "tick_rate": 5,
+    "tick_rate": 1,
     "starting_location": { "lat": 12.6775, "lng": 101.0044 }
   },
   "resources": {
@@ -47,7 +47,7 @@
   ],
   "inject_triggers": [
     {
-      "tick": 10,
+      "tick": 5,
       "type": "INTEL",
       "title": "Typhoon Francisco Update",
       "content": "Previous weather models underestimated speed. Forecast landfall Okinawa NET 2200Z Oct 14. Accelerate all plans immediately.",

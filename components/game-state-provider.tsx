@@ -45,6 +45,8 @@ export interface GameState {
   scenarioTitle?: string | null;
   deploymentRequests: DeploymentRequest[];
   activeRefuels: Array<{ tankerId: string; receiverId: string }>;
+  // Additional transient maps (e.g., injectResponses) may be attached when persisted
+  injectResponses?: Record<string, unknown>;
 }
 
 type Action =

@@ -19,8 +19,11 @@ import type {
   HostileUnit,
   InjectKind,
   InjectResponseRequirement,
+  InjectProposal,
   InjectTrigger,
   NoFlyZone,
+  EvaluationGrade,
+  GradingStrictness,
   Side,
 } from "@/types/game";
 import type { GameState } from "@/components/game-state-provider";
@@ -270,6 +273,7 @@ function updateTensionKey(
 function withTriggerIds(triggers: InjectTrigger[] | undefined): InjectTrigger[] {
   return (triggers ?? []).map((trigger, index) => ({
     ...trigger,
+    strictness: trigger.strictness ?? "BALANCED",
     id:
       typeof trigger.id === "string" && trigger.id.trim().length > 0
         ? trigger.id
@@ -453,10 +457,14 @@ function findTransportInjectOnStation(
 // ─── Inject response types ────────────────────────────────────────────────────
 
 export interface InjectResponseRecord {
-  status: "pending";
+  status: "pending" | "graded" | "resubmit_required" | "error" | "expired";
   responseType: "MFR" | "COA";
   content: string;
   submittedAt: string;
+  strictness?: GradingStrictness;
+  grade?: EvaluationGrade;
+  injectProposal?: InjectProposal;
+  error?: string;
 }
 
 export interface CreateAdminInjectInput {
@@ -485,6 +493,23 @@ export interface CreateAdminInjectInput {
 type PersistedStateWithResponses = GameState & {
   injectResponses?: Record<string, InjectResponseRecord>;
 };
+
+function normalizeInjectResponses(
+  value: unknown
+): Record<string, InjectResponseRecord> {
+  if (!value || typeof value !== "object") return {};
+  const source = value as Record<string, unknown>;
+  const entries = Object.entries(source).filter(([, record]) => {
+    if (!record || typeof record !== "object") return false;
+    const candidate = record as Partial<InjectResponseRecord>;
+    return (
+      (candidate.responseType === "MFR" || candidate.responseType === "COA") &&
+      typeof candidate.content === "string" &&
+      typeof candidate.submittedAt === "string"
+    );
+  });
+  return Object.fromEntries(entries) as Record<string, InjectResponseRecord>;
+}
 
 // ─── Context type ─────────────────────────────────────────────────────────────
 
@@ -518,6 +543,7 @@ export interface RemoteGameStateContextType {
   setInjects: (injects: GameState["injects"]) => void;
   setBases: (bases: GameState["bases"]) => void;
   setCurrentTick: (tick: number) => void;
+  setTriggerStrictness: (id: string, strictness: GradingStrictness) => void;
   updateInjectEventTick: (id: string, tick: number) => Promise<boolean>;
   triggerInjectEventNow: (id: string) => Promise<boolean>;
   createAdminInject: (input: CreateAdminInjectInput) => Promise<boolean>;
@@ -527,7 +553,21 @@ export interface RemoteGameStateContextType {
   submitInjectResponse: (
     triggerId: string,
     responseType: "MFR" | "COA",
-    content: string
+    content: string,
+    strictness?: GradingStrictness
+  ) => void;
+  gradeInjectResponse: (
+    triggerId: string,
+    payload: {
+      responseType: "MFR" | "COA";
+      content: string;
+      strictness?: GradingStrictness;
+      missedDeadline?: boolean;
+    }
+  ) => Promise<void>;
+  setInjectResponseStatus: (
+    triggerId: string,
+    status: InjectResponseRecord["status"]
   ) => void;
   submitDeploymentRequest: (request: {
     unitId: string;
@@ -561,11 +601,23 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
   // Always up-to-date ref so callbacks don't close over stale state
   const stateRef = useRef<GameState>(state);
   stateRef.current = state;
+  const gradingInFlightRef = useRef(new Set<string>());
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const externalBroadcastListenersRef = useRef(new Set<(s: GameState) => void>());
 
   // ── Utilities ─────────────────────────────────────────────────────────────
+
+  const persistResponses = useCallback(
+    (nextResponses: Record<string, InjectResponseRecord>) => {
+      const nextForPersistence = {
+        ...stateRef.current,
+        injectResponses: nextResponses,
+      } as GameState;
+      void persistSimulationState(nextForPersistence);
+    },
+    []
+  );
 
   const setStateAndPersist = useCallback(
     (updater: (s: GameState) => GameState) => {
@@ -674,6 +726,11 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     if (savedSession) {
       stateRef.current = savedSession;
       setState(savedSession);
+      setInjectResponses(
+        normalizeInjectResponses(
+          (savedSession as PersistedStateWithResponses).injectResponses
+        )
+      );
     }
 
     let mounted = true;
@@ -715,6 +772,29 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
           },
         }));
       })
+      .on("broadcast", { event: "grading_complete" }, ({ payload }) => {
+        const g = payload as {
+          triggerId: string;
+          grade?: EvaluationGrade;
+          injectProposal?: InjectProposal;
+          status?: InjectResponseRecord["status"];
+        };
+        if (!g?.triggerId) return;
+        setInjectResponses((prev) => {
+          const current = prev[g.triggerId];
+          if (!current) return prev;
+          const next: InjectResponseRecord = {
+            ...current,
+            status: g.status ?? "graded",
+            grade: g.grade ?? current.grade,
+            injectProposal: g.injectProposal ?? current.injectProposal,
+            error: undefined,
+          };
+          const nextMap = { ...prev, [g.triggerId]: next };
+          persistResponses(nextMap);
+          return nextMap;
+        });
+      })
       .on("broadcast", { event: "deployment_request" }, ({ payload }) => {
         const request = payload as DeploymentRequest;
         if (request?.id) {
@@ -735,10 +815,12 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     void fetchSimulationState()
       .then((dbState) => {
         if (!mounted || !dbState || !dbState.loadedFileName) return;
-        const hydrated = serializeState(dbState);
+        const dbWithResponses = dbState as PersistedStateWithResponses;
+        const hydrated = serializeState(dbWithResponses);
         stateRef.current = hydrated;
         saveSession(hydrated);
         setState(hydrated);
+        setInjectResponses(normalizeInjectResponses(dbWithResponses.injectResponses));
       })
       .catch(() => {
         // Supabase unavailable; local fallback state remains active.
@@ -749,7 +831,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       ch.unsubscribe();
       channelRef.current = null;
     };
-  }, [applyHardResetLocal, isAdminPath, setStateAndPersist, syncState]);
+  }, [applyHardResetLocal, isAdminPath, persistResponses, setStateAndPersist, syncState]);
 
   // ── Public actions ────────────────────────────────────────────────────────
 
@@ -887,6 +969,19 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     const nextTick = Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : 0;
     setState((s) => ({ ...s, tick: nextTick }));
   }, []);
+
+  const setTriggerStrictness = useCallback(
+    (id: string, strictness: GradingStrictness) => {
+      if (!id) return;
+      setStateAndPersist((s) => ({
+        ...s,
+        injectTriggers: (s.injectTriggers ?? []).map((t) =>
+          t.id === id ? { ...t, strictness } : t
+        ),
+      }));
+    },
+    [setStateAndPersist]
+  );
 
   const updateInjectEventTick = useCallback(
     async (id: string, tick: number) => {
@@ -1148,13 +1243,19 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
   );
 
   const submitInjectResponse = useCallback(
-    (triggerId: string, responseType: "MFR" | "COA", content: string) => {
+    (
+      triggerId: string,
+      responseType: "MFR" | "COA",
+      content: string,
+      strictness?: GradingStrictness
+    ) => {
       const submittedAt = new Date().toISOString();
       const record: InjectResponseRecord = {
         status: "pending",
         responseType,
         content,
         submittedAt,
+        strictness,
       };
       setInjectResponses((prev) => ({ ...prev, [triggerId]: record }));
       const nextForPersistence = {
@@ -1175,6 +1276,105 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       });
     },
     [sendBroadcast]
+  );
+
+  const setInjectResponseStatus = useCallback(
+    (triggerId: string, status: InjectResponseRecord["status"]) => {
+      setInjectResponses((prev) => {
+        const current = prev[triggerId];
+        if (!current) return prev;
+        const next = { ...current, status };
+        const nextMap = { ...prev, [triggerId]: next };
+        persistResponses(nextMap);
+        return nextMap;
+      });
+    },
+    [persistResponses]
+  );
+
+  const gradeInjectResponse = useCallback(
+    async (
+      triggerId: string,
+      payload: {
+        responseType: "MFR" | "COA";
+        content: string;
+        strictness?: GradingStrictness;
+        missedDeadline?: boolean;
+      }
+    ) => {
+      if (gradingInFlightRef.current.has(triggerId)) {
+        return;
+      }
+      gradingInFlightRef.current.add(triggerId);
+      try {
+        const res = await fetch("/api/inject/evaluate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            triggerId,
+            ...payload,
+            scenarioTitle: stateRef.current.scenarioTitle,
+            tick: stateRef.current.tick,
+          }),
+        });
+
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "Evaluation failed");
+        }
+        const body = (await res.json()) as {
+          grade?: EvaluationGrade;
+          injectProposal?: InjectProposal;
+          status?: InjectResponseRecord["status"];
+          strictness?: GradingStrictness;
+        };
+
+        setInjectResponses((prev) => {
+          const current = prev[triggerId] ?? {
+            status: "pending" as const,
+            responseType: payload.responseType,
+            content: payload.content,
+            submittedAt: new Date().toISOString(),
+            strictness: payload.strictness,
+          };
+          const next: InjectResponseRecord = {
+            ...current,
+            status: body.status ?? "graded",
+            grade: body.grade ?? current.grade,
+            injectProposal: body.injectProposal,
+            strictness: body.strictness ?? payload.strictness ?? current.strictness,
+            error: undefined,
+          };
+          const nextMap = { ...prev, [triggerId]: next };
+          persistResponses(nextMap);
+          return nextMap;
+        });
+
+        void sendBroadcast("grading_complete", {
+          triggerId,
+          grade: body.grade,
+          injectProposal: body.injectProposal,
+          status: body.status ?? "graded",
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        setInjectResponses((prev) => {
+          const current = prev[triggerId];
+          if (!current) return prev;
+          const next: InjectResponseRecord = {
+            ...current,
+            status: "error",
+            error: message,
+          };
+          const nextMap = { ...prev, [triggerId]: next };
+          persistResponses(nextMap);
+          return nextMap;
+        });
+      } finally {
+        gradingInFlightRef.current.delete(triggerId);
+      }
+    },
+    [persistResponses, sendBroadcast]
   );
 
   const submitDeploymentRequest = useCallback(
@@ -1419,11 +1619,14 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjects,
       setBases,
       setCurrentTick,
+      setTriggerStrictness,
       updateInjectEventTick,
       triggerInjectEventNow,
       createAdminInject,
       injectResponses,
       submitInjectResponse,
+      gradeInjectResponse,
+      setInjectResponseStatus,
       submitDeploymentRequest,
       decideDeploymentRequest,
       initiateRefuel,
@@ -1447,11 +1650,14 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjects,
       setBases,
       setCurrentTick,
+      setTriggerStrictness,
       updateInjectEventTick,
       triggerInjectEventNow,
       createAdminInject,
       injectResponses,
       submitInjectResponse,
+      gradeInjectResponse,
+      setInjectResponseStatus,
       submitDeploymentRequest,
       decideDeploymentRequest,
       initiateRefuel,

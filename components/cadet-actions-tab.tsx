@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, FileText, ShieldAlert, Target } fro
 
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
 import { triggerKey } from "@/components/inject-trigger-card";
-import type { Asset, InjectTrigger } from "@/types/game";
+import type { Asset, GradingStrictness, InjectTrigger } from "@/types/game";
 import type { InjectResponseRecord } from "@/components/remote-game-state-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,7 +136,10 @@ function TriggerResponseCard({
   onSubmit: (triggerId: string, responseType: "MFR" | "COA", content: string) => void;
 }) {
   const id = triggerKey(trigger);
-  const submitted = !!responseRecord;
+  const submitted =
+    !!responseRecord &&
+    responseRecord.status !== "resubmit_required" &&
+    responseRecord.status !== "expired";
   const requiredResponse = trigger.required_response;
   const requiresMfr = requiredResponse === "MFR";
   const requiresCoa = requiredResponse === "COA";
@@ -309,17 +312,25 @@ function TriggerResponseCard({
             <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-amber-400" />
             <div>
               <p className="text-sm font-semibold text-amber-300">
-                Response Submitted — Pending AI Grading
+                Response Submitted — Awaiting Staff Review
               </p>
               <p className="mt-0.5 text-xs text-zinc-500">
                 {responseRecord.responseType} submitted at{" "}
                 {new Date(responseRecord.submittedAt).toLocaleTimeString()}
+              </p>
+              <p className="mt-2 text-xs text-zinc-400">
+                Staff will provide feedback directly if updates are required.
               </p>
             </div>
           </div>
         ) : requiresMfr ? (
           /* MFR inline form */
           <div className="space-y-3 rounded-lg border border-border border-t-primary/40 bg-card/50 p-4 md:border-t-2">
+            {responseRecord?.status === "resubmit_required" && (
+              <p className="rounded border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-300">
+                Resubmission requested by staff. Update your MFR and submit again.
+              </p>
+            )}
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
               Memorandum For Record
             </p>
@@ -347,6 +358,11 @@ function TriggerResponseCard({
         ) : requiresCoa ? (
           /* COA inline form */
           <div className="space-y-4 rounded-lg border border-border border-t-primary/40 bg-card/50 p-4 md:border-t-2">
+            {responseRecord?.status === "resubmit_required" && (
+              <p className="rounded border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-300">
+                Resubmission requested by staff. Update your COA and submit again.
+              </p>
+            )}
             <COAForm
               assets={assets}
               selections={coaSelections}
@@ -378,11 +394,28 @@ function TriggerResponseCard({
 // ─── CadetActionsTab ──────────────────────────────────────────────────────────
 
 export function CadetActionsTab() {
-  const { state, injectResponses, submitInjectResponse } = useRemoteGameState();
+  const { state, injectResponses, submitInjectResponse, gradeInjectResponse } =
+    useRemoteGameState();
 
   const visibleTriggers = state.injectTriggers.filter(
     (t) => t.tick <= state.tick
   );
+
+  const handleSubmit = (
+    trigger: InjectTrigger,
+    responseType: "MFR" | "COA",
+    content: string
+  ) => {
+    const strictness: GradingStrictness = trigger.strictness ?? "BALANCED";
+    const key = triggerKey(trigger);
+    submitInjectResponse(key, responseType, content, strictness);
+    void gradeInjectResponse(key, {
+      responseType,
+      content,
+      strictness,
+      missedDeadline: false,
+    });
+  };
 
   if (!state.loadedFileName) {
     return (
@@ -417,7 +450,9 @@ export function CadetActionsTab() {
           currentTick={state.tick}
           assets={state.assets}
           responseRecord={injectResponses[triggerKey(t)]}
-          onSubmit={submitInjectResponse}
+          onSubmit={(triggerId, responseType, content) =>
+            handleSubmit(t, responseType, content)
+          }
         />
       ))}
     </div>

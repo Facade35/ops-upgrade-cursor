@@ -5,6 +5,8 @@ import { AlertTriangle, CheckCircle2, Clock, FileText, Target } from "lucide-rea
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
 import { triggerKey } from "@/components/inject-trigger-card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { GradingStrictness } from "@/types/game";
 
 const PRIORITY_CLASSES: Record<string, string> = {
   CRITICAL: "bg-red-600 text-white",
@@ -20,7 +22,13 @@ const TYPE_CLASSES: Record<string, string> = {
 };
 
 export function AdminIntelTab() {
-  const { state, injectResponses } = useRemoteGameState();
+  const {
+    state,
+    injectResponses,
+    setTriggerStrictness,
+    setInjectResponseStatus,
+    createAdminInject,
+  } = useRemoteGameState();
   const triggers = state.injectTriggers ?? [];
 
   if (!state.loadedFileName) {
@@ -61,6 +69,30 @@ export function AdminIntelTab() {
         const overdue = ticksRemaining !== null && ticksRemaining <= 0;
         const released = t.tick <= state.tick;
 
+        const requestResubmission = () =>
+          setInjectResponseStatus(key, "resubmit_required");
+        const acceptResponse = () => setInjectResponseStatus(key, "graded");
+        const approveProposal = async () => {
+          const proposal = response?.injectProposal;
+          if (!proposal) return;
+          await createAdminInject({
+            injectKind: "INFO_UPDATE",
+            title: proposal.title ?? "Follow-up Inject",
+            content: proposal.content,
+            tick: proposal.tick ?? state.tick + 1,
+            type: proposal.type ?? "OPS",
+            priority: proposal.priority ?? "MEDIUM",
+            requiredResponse: proposal.required_response ?? "NONE",
+            deadlineTick: proposal.deadline_tick,
+            lat: proposal.lat,
+            lng: proposal.lng,
+            mapVisible: proposal.map_visible ?? true,
+            sidc: proposal.sidc,
+            executeNow: false,
+          });
+          setInjectResponseStatus(key, "graded");
+        };
+
         const priorityCls = t.priority
           ? (PRIORITY_CLASSES[t.priority] ?? "bg-zinc-600 text-zinc-200")
           : null;
@@ -98,6 +130,21 @@ export function AdminIntelTab() {
                       {t.priority}
                     </Badge>
                   )}
+                  <select
+                    className="ml-2 rounded border border-border bg-background px-2 py-1 text-[10px] uppercase text-zinc-200"
+                    value={t.strictness ?? "BALANCED"}
+                    onChange={(e) =>
+                      setTriggerStrictness(
+                        t.id ?? key,
+                        e.target.value as GradingStrictness
+                      )
+                    }
+                  >
+                    <option value="COACHING">Coaching</option>
+                    <option value="BALANCED">Balanced</option>
+                    <option value="MISSION_READY">Mission-Ready</option>
+                    <option value="ZERO_TOLERANCE">Zero-Tolerance</option>
+                  </select>
                   {!released && (
                     <Badge variant="outline" className="font-mono text-[10px] text-zinc-500">
                       NOT YET RELEASED
@@ -172,28 +219,85 @@ export function AdminIntelTab() {
             )}
 
             {/* ── Cadet response area ──────────────────────────────────── */}
-            <div className="p-5">
+            <div className="p-5 space-y-3">
               {response ? (
-                <div className="space-y-3">
+                <>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="size-4 text-amber-400" />
                     <span className="text-sm font-semibold text-amber-300">
-                      Response Pending AI Grading
+                      {response.status === "pending"
+                        ? "Response Pending AI Grading"
+                        : response.status === "resubmit_required"
+                          ? "Resubmission Required"
+                          : response.status === "error"
+                            ? "Error during grading"
+                            : "AI Graded"}
                     </span>
                     <span className="ml-auto text-xs text-zinc-500">
-                      {response.responseType} ·{" "}
-                      {new Date(response.submittedAt).toLocaleTimeString()}
+                      {response.responseType} · {new Date(response.submittedAt).toLocaleTimeString()}
                     </span>
                   </div>
-                  <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4">
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4 space-y-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                       Submitted Content
                     </p>
                     <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-zinc-200">
                       {response.content}
                     </pre>
                   </div>
-                </div>
+
+                  {response.grade && (
+                    <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-4 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-200">
+                        AI Summary & Recommendation
+                      </p>
+                      <p className="text-sm text-emerald-100">Verdict: {response.grade.verdict}</p>
+                      <p className="text-sm text-emerald-50">{response.grade.summary}</p>
+                      {response.grade.faults?.length ? (
+                        <ul className="list-disc pl-5 text-sm text-emerald-100">
+                          {response.grade.faults.slice(0, 4).map((f, idx) => (
+                            <li key={idx}>{f}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {response.injectProposal && (
+                    <div className="rounded-lg border border-blue-800/40 bg-blue-950/20 p-4 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-200">
+                        AI Inject Proposal
+                      </p>
+                      <p className="text-sm text-blue-100 font-semibold">
+                        {response.injectProposal.title}
+                      </p>
+                      {response.injectProposal.content && (
+                        <p className="text-sm text-blue-50">
+                          {response.injectProposal.content}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={acceptResponse}>
+                      Accept
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={requestResubmission}>
+                      Request Resubmission
+                    </Button>
+                    {response.injectProposal && (
+                      <Button size="sm" onClick={() => void approveProposal()}>
+                        Approve Proposal
+                      </Button>
+                    )}
+                  </div>
+
+                  {response.error && (
+                    <p className="text-xs text-red-400">Error: {response.error}</p>
+                  )}
+                </>
               ) : requiresResponse ? (
                 <div className="flex items-center gap-2 text-sm text-zinc-500">
                   <Clock className="size-4 shrink-0" />
