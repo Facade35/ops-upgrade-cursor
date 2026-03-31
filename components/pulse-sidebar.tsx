@@ -113,28 +113,30 @@ export function PulseSidebar({ mode = "sandbox" }: { mode?: "admin" | "cadet" | 
                 )}
               </div>
             ) : (
-              <div className="mt-2 rounded border border-red-900/60 bg-red-950/20 px-2 py-2">
-                <p className="text-[11px] uppercase tracking-wider text-red-300">
+              <details className="mt-2 rounded border border-red-900/60 bg-red-950/20">
+                <summary className="cursor-pointer px-2 py-2 text-[11px] uppercase tracking-wider text-red-300">
                   Red Assets ({state.hostileUnits.length})
-                </p>
-                {state.hostileUnits.length === 0 ? (
-                  <p className="mt-1 text-[11px] text-zinc-500">No hostile aircraft active.</p>
-                ) : (
-                  <div className="mt-1.5 space-y-1">
-                    {state.hostileUnits.map((unit) => (
-                      <div
-                        key={unit.id}
-                        className="rounded border border-red-950/70 bg-black/40 px-2 py-1"
-                      >
-                        <p className="text-[11px] text-red-200">{unit.label}</p>
-                        <p className="text-[10px] text-zinc-500">
-                          {unit.status} · Fuel {Math.round(unit.current_fuel)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                </summary>
+                <div className="border-t border-red-900/60 px-2 py-2">
+                  {state.hostileUnits.length === 0 ? (
+                    <p className="text-[11px] text-zinc-500">No hostile units active.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {state.hostileUnits.map((unit) => (
+                        <div
+                          key={unit.id}
+                          className="rounded border border-red-950/70 bg-black/40 px-2 py-1"
+                        >
+                          <p className="text-[11px] text-red-200">{unit.label}</p>
+                          <p className="text-[10px] text-zinc-500">
+                            {unit.status} · Fuel {Math.round(unit.current_fuel)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
             )}
           </section>
 

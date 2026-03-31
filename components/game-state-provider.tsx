@@ -15,9 +15,12 @@ import type {
   ResourceMap,
   SpawnedUnit,
 } from "@/types/game";
+import { normalizeScenarioStartTime } from "@/lib/simulation-time";
+import { clampSimulationTickRate } from "@/lib/simulation-tick-rate";
 import {
   applyFuelTick,
   applyInitialAirborne,
+  resolveHoursPerTick,
   spawnUnitsFromAssets,
 } from "@/lib/simulation-units";
 
@@ -36,6 +39,10 @@ export interface GameState {
   noFlyZones: NoFlyZone[];
   tick: number;
   tickRate: number;
+  /** Simulated hours per game tick (fuel and movement scale with this). */
+  hoursPerTick: number;
+  /** ISO 8601 UTC scenario start; simulated clock advances with tick × hoursPerTick. */
+  simulationStartTimeIso: string | null;
   paused: boolean;
   status: "RUNNING" | "STOPPED" | "UNINITIALIZED";
   loadedFileName: string | null;
@@ -85,6 +92,8 @@ const initialState: GameState = {
   noFlyZones: [],
   tick: 0,
   tickRate: 1,
+  hoursPerTick: 1,
+  simulationStartTimeIso: null,
   paused: false,
   status: "UNINITIALIZED",
   loadedFileName: null,
@@ -171,9 +180,13 @@ function reducer(state: GameState, action: Action): GameState {
         scenarioTitle: action.payload.definition.scenarioTitle ?? null,
         deploymentRequests: [],
       };
-      if (typeof action.payload.initialTickRate === "number" && action.payload.initialTickRate >= 1) {
-        next.tickRate = Math.min(10, Math.max(1, Math.round(action.payload.initialTickRate)));
+      if (typeof action.payload.initialTickRate === "number" && action.payload.initialTickRate > 0) {
+        next.tickRate = clampSimulationTickRate(action.payload.initialTickRate);
       }
+      next.hoursPerTick = resolveHoursPerTick(action.payload.definition.hours_per_tick);
+      next.simulationStartTimeIso = normalizeScenarioStartTime(
+        action.payload.definition.scenario_start_time
+      );
       next.globalTension = deriveGlobalTension(next.resources, next.globalTension);
       return next;
     }
@@ -209,7 +222,7 @@ function reducer(state: GameState, action: Action): GameState {
     case "SET_TICK_RATE":
       return {
         ...state,
-        tickRate: action.payload,
+        tickRate: clampSimulationTickRate(action.payload),
       };
     case "TOGGLE_PAUSED":
       return {
@@ -221,6 +234,7 @@ function reducer(state: GameState, action: Action): GameState {
       return {
         ...initialState,
         tickRate: state.tickRate,
+        hoursPerTick: state.hoursPerTick,
         paused: true,
         status: "UNINITIALIZED",
         globalTension: 20,
@@ -233,10 +247,11 @@ function reducer(state: GameState, action: Action): GameState {
       };
     case "ADVANCE_TICK": {
       const nextTick = state.tick + 1;
+      const h = resolveHoursPerTick(state.hoursPerTick);
       const firedEvents = state.events.filter((event) => event.tick === nextTick);
 
       if (firedEvents.length === 0) {
-        const fuelStep = applyFuelTick(state.units, state.bases);
+        const fuelStep = applyFuelTick(state.units, state.bases, h);
         return {
           ...state,
           tick: nextTick,
@@ -263,7 +278,7 @@ function reducer(state: GameState, action: Action): GameState {
         }
       }
 
-      const fuelStep = applyFuelTick(state.units, state.bases);
+      const fuelStep = applyFuelTick(state.units, state.bases, h);
       return {
         ...state,
         tick: nextTick,

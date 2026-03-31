@@ -11,7 +11,9 @@ import {
   applyMovementTick,
   distanceKm,
   isWithinAoe,
+  resolveHoursPerTick,
 } from "@/lib/simulation-units";
+import { isExplicitAirSidc } from "@/lib/sidc-symbol-set";
 import { persistSimulationState } from "@/lib/supabase";
 
 const MAX_INJECT_LOGS = 120;
@@ -53,9 +55,11 @@ function applyEventInjects(
 
 function applyActiveRefuels(
   units: GameState["units"],
-  activeRefuels: GameState["activeRefuels"]
+  activeRefuels: GameState["activeRefuels"],
+  hoursPerTick: number
 ): { units: GameState["units"]; activeRefuels: GameState["activeRefuels"] } {
   if (!activeRefuels.length) return { units, activeRefuels };
+  const h = resolveHoursPerTick(hoursPerTick);
 
   const nextUnits = units.map((unit) => ({ ...unit }));
   const unitById = new Map(nextUnits.map((unit) => [unit.id, unit]));
@@ -73,11 +77,11 @@ function applyActiveRefuels(
       continue;
     }
 
-    const rate = Math.max(0, tanker.transfer_rate ?? 0);
+    const ratePerHour = Math.max(0, tanker.transfer_rate ?? 0);
     const receiverNeed = Math.max(0, receiver.max_fuel - receiver.current_fuel);
-    if (rate <= 0 || receiverNeed <= 0 || tanker.current_fuel <= 0) continue;
+    if (ratePerHour <= 0 || receiverNeed <= 0 || tanker.current_fuel <= 0) continue;
 
-    const transferAmount = Math.min(rate, receiverNeed, tanker.current_fuel);
+    const transferAmount = Math.min(ratePerHour * h, receiverNeed, tanker.current_fuel);
     if (transferAmount <= 0) continue;
 
     tanker.current_fuel = Math.max(0, tanker.current_fuel - transferAmount);
@@ -92,10 +96,12 @@ function applyActiveRefuels(
 }
 
 function applyHostileMovementTick(
-  hostileUnits: GameState["hostileUnits"]
+  hostileUnits: GameState["hostileUnits"],
+  hoursPerTick: number
 ): GameState["hostileUnits"] {
+  const h = resolveHoursPerTick(hoursPerTick);
   return hostileUnits.map((unit) => {
-    if (unit.status !== "AIRBORNE") return unit;
+    if (unit.status !== "AIRBORNE" && unit.status !== "SURFACE") return unit;
     const route = unit.route ?? [];
     let routeIndex = unit.route_index ?? 0;
     let targetLat =
@@ -118,7 +124,7 @@ function applyHostileMovementTick(
 
     const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
     if (remaining <= 0) return unit;
-    const stepKm = Math.max(0, unit.speed);
+    const stepKm = Math.max(0, unit.speed) * h;
     if (stepKm <= 0) return unit;
 
     if (stepKm >= remaining) {
@@ -152,13 +158,16 @@ function applyHostileMovementTick(
 }
 
 function applyHostileFuelTick(
-  hostileUnits: GameState["hostileUnits"]
+  hostileUnits: GameState["hostileUnits"],
+  hoursPerTick: number
 ): GameState["hostileUnits"] {
+  const h = resolveHoursPerTick(hoursPerTick);
   return hostileUnits.map((unit) => {
-    if (unit.status !== "AIRBORNE") return unit;
+    if (unit.status !== "AIRBORNE" && unit.status !== "SURFACE") return unit;
+    const burn = Math.max(0, unit.fuel_burn_rate) * h;
     return {
       ...unit,
-      current_fuel: Math.max(0, unit.current_fuel - unit.fuel_burn_rate),
+      current_fuel: Math.max(0, unit.current_fuel - burn),
     };
   });
 }
@@ -178,13 +187,14 @@ function spawnHostileUnitsForGroup(
   const nextUnits = [...state.hostileUnits];
   const quantity = Math.max(1, group.quantity);
 
+  const hostileMobility = isExplicitAirSidc(group.sidc) ? "AIRBORNE" : "SURFACE";
   for (let i = 0; i < quantity; i += 1) {
     nextUnits.push({
       id: `${group.id}-${i + 1}`,
       group_id: group.id,
       label: `${group.label} ${i + 1}`,
       side: group.side,
-      status: "AIRBORNE",
+      status: hostileMobility,
       role: group.role,
       sidc: group.sidc,
       home_base: group.home_base,
@@ -220,7 +230,7 @@ function applyRetaskToRedAssets(
     retaskAllGroups || groupScope.has(groupId);
 
   const hostileUnits = state.hostileUnits.map((unit) => {
-    if (unit.status !== "AIRBORNE") return unit;
+    if (unit.status !== "AIRBORNE" && unit.status !== "SURFACE") return unit;
     if (!appliesToGroup(unit.group_id)) return unit;
     return {
       ...unit,
@@ -422,7 +432,7 @@ function rebuildKnownTracks(
 
   const tracks: GameState["knownTracks"] = [];
   for (const hostile of hostileUnits) {
-    if (hostile.status !== "AIRBORNE") continue;
+    if (hostile.status !== "AIRBORNE" && hostile.status !== "SURFACE") continue;
     let detectedByUnitId: string | null = null;
     let confidence = 0;
 
@@ -443,6 +453,9 @@ function rebuildKnownTracks(
     }
 
     if (!detectedByUnitId) continue;
+    const classification = isExplicitAirSidc(hostile.sidc)
+      ? ("HOSTILE_AIR" as const)
+      : ("HOSTILE_SURFACE" as const);
     tracks.push({
       id: `track-${hostile.id}`,
       truth_unit_id: hostile.id,
@@ -450,7 +463,7 @@ function rebuildKnownTracks(
       lat: hostile.lat,
       lng: hostile.lng,
       side: hostile.side,
-      classification: "HOSTILE_AIR",
+      classification,
       last_seen_tick: tick,
       detected_by_unit_id: detectedByUnitId,
       confidence,
@@ -462,6 +475,7 @@ function rebuildKnownTracks(
 function computeNextTickState(state: GameState): GameState {
   const now = Date.now();
   const nextTick = state.tick + 1;
+  const h = resolveHoursPerTick(state.hoursPerTick);
   const launchedUnits = state.units.map((unit) => {
     if (
       unit.status === "GROUNDED" &&
@@ -480,12 +494,12 @@ function computeNextTickState(state: GameState): GameState {
     return unit;
   });
 
-  const movedUnits = applyMovementTick(launchedUnits);
-  const movedHostileUnits = applyHostileMovementTick(state.hostileUnits);
+  const movedUnits = applyMovementTick(launchedUnits, h);
+  const movedHostileUnits = applyHostileMovementTick(state.hostileUnits, h);
   const firedEvents = state.events.filter((event) => event.tick === nextTick);
-  const fuelStep = applyFuelTick(movedUnits, state.bases);
-  const fueledHostileUnits = applyHostileFuelTick(movedHostileUnits);
-  const doctrineStep = applyActiveRefuels(fuelStep.units, state.activeRefuels);
+  const fuelStep = applyFuelTick(movedUnits, state.bases, h);
+  const fueledHostileUnits = applyHostileFuelTick(movedHostileUnits, h);
+  const doctrineStep = applyActiveRefuels(fuelStep.units, state.activeRefuels, h);
   let workingState: GameState = {
     ...state,
     tick: nextTick,
@@ -623,6 +637,7 @@ export function useAdminTickEngine(persistEveryTicks = 50) {
     state.loadedFileName,
     state.paused,
     state.tickRate,
+    state.hoursPerTick,
     injectResponses,
     gradeInjectResponse,
     persistEveryTicks,

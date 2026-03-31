@@ -11,7 +11,7 @@ export interface Base {
 
 export type UnitRole = "TANKER" | "FIGHTER" | "ISR" | "TRANSPORT";
 export type Side = "BLUE" | "RED";
-export type HostileUnitStatus = "AIRBORNE" | "DESTROYED";
+export type HostileUnitStatus = "AIRBORNE" | "SURFACE" | "DESTROYED";
 export type NoFlyZonePolicy = "WARN_THEN_DESTROY";
 export type InjectResponseRequirement = "MFR" | "COA" | "NONE";
 export type GradingStrictness =
@@ -33,6 +33,7 @@ export interface InjectProposal {
   title: string;
   content?: string;
   tick?: number;
+  inject_kind?: InjectKind;
   type?: string;
   priority?: string;
   required_response?: InjectResponseRequirement;
@@ -41,12 +42,84 @@ export interface InjectProposal {
   lng?: number;
   map_visible?: boolean;
   sidc?: string;
+  spawn_group?: {
+    id?: string;
+    label?: string;
+    home_base?: string;
+    quantity?: number;
+    role?: UnitRole;
+    sidc?: string;
+    max_fuel?: number;
+    fuel_burn_rate?: number;
+    speed?: number;
+    aoe_radius?: number;
+    sensor_range_km?: number;
+    engagement_range_km?: number;
+    combat_rating?: number;
+    signature?: number;
+    route?: Array<{ lat: number; lng: number }>;
+  };
+}
+
+export interface EvalContextCurrentTrigger {
+  id: string;
+  tick: number;
+  title?: string;
+  type?: string;
+  priority?: string;
+  required_response?: InjectResponseRequirement;
+  deadline_tick?: number;
+  lat?: number;
+  lng?: number;
+}
+
+export interface EvalContextMissionSnapshot {
+  tick: number;
+  globalTension: number;
+  topRisks: string[];
+}
+
+export interface EvalContextRelevantAsset {
+  id: string;
+  label: string;
+  role?: UnitRole;
+  quantity: number;
+  airborne: number;
+  grounded: number;
+  avgFuelRatio?: number;
+  nearestDistanceKm?: number;
+  roughLocation?: string;
+}
+
+export interface EvalContextRecentInject {
+  id: string;
+  tick: number;
+  title?: string;
+  type?: string;
+  priority?: string;
+}
+
+export interface EvalContextConstraints {
+  allowedTypes: string[];
+  allowedPriorities: string[];
+  allowedRequiredResponses: InjectResponseRequirement[];
+  tickWindow: { min: number; max: number };
+  deadlineWindow: { min: number; max: number };
+}
+
+export interface EvalContext {
+  currentTrigger?: EvalContextCurrentTrigger;
+  missionSnapshot: EvalContextMissionSnapshot;
+  relevantAssets: EvalContextRelevantAsset[];
+  recentInjects: EvalContextRecentInject[];
+  constraints: EvalContextConstraints;
 }
 export type InjectKind =
   | "TASK_RED_ASSET"
   | "CREATE_NFZ"
   | "CREATE_DROP_ZONE"
-  | "INFO_UPDATE";
+  | "INFO_UPDATE"
+  | "SPAWN_HOSTILE_GROUP";
 
 export interface Asset {
   id: string;
@@ -55,11 +128,14 @@ export interface Asset {
   quantity: number;
   home_base: string;
   max_fuel: number;
+  /** Fuel consumed per simulated hour while airborne. */
   fuel_burn_rate: number;
+  /** Ground speed in km/h (airborne movement). */
   speed: number;
   capacity: number;
   role?: UnitRole;
   aoe_radius?: number;
+  /** Fuel per simulated hour (tanker). */
   transfer_rate?: number;
   side?: Side;
   sensor_range_km?: number;
@@ -94,11 +170,14 @@ export interface SpawnedUnit {
   lng: number;
   current_fuel: number;
   max_fuel: number;
+  /** Fuel per simulated hour (airborne). */
   fuel_burn_rate: number;
+  /** km/h when airborne. */
   speed: number;
   capacity: number;
   role?: UnitRole;
   aoe_radius?: number;
+  /** Fuel per simulated hour (tanker). */
   transfer_rate?: number;
   target_lat?: number;
   target_lng?: number;
@@ -202,7 +281,7 @@ export interface KnownTrack {
   lat: number;
   lng: number;
   side: Side;
-  classification: "HOSTILE_AIR";
+  classification: "HOSTILE_AIR" | "HOSTILE_SURFACE";
   last_seen_tick: number;
   detected_by_unit_id: string;
   confidence: number;
@@ -294,6 +373,13 @@ export interface GameDefinition {
   noFlyZones?: NoFlyZone[];
   initialAirborne?: InitialAirbornePlacement[];
   scenarioTitle?: string;
+  /**
+   * Simulated hours advanced per game tick (default 1). Used to scale movement and fuel.
+   * Asset `speed` is km/h; `fuel_burn_rate` and tanker `transfer_rate` are per simulated hour.
+   */
+  hours_per_tick?: number;
+  /** ISO 8601 scenario start (UTC recommended). Simulated time = start + tick × hours_per_tick. */
+  scenario_start_time?: string;
 }
 
 export interface InjectLog {

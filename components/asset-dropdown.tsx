@@ -116,11 +116,11 @@ export function AssetDropdown({
           </div>
           <div className="flex justify-between gap-2">
             <dt>Burn rate</dt>
-            <dd className="text-zinc-300">{unit.fuel_burn_rate.toLocaleString()} / tick</dd>
+            <dd className="text-zinc-300">{unit.fuel_burn_rate.toLocaleString()} / sim hr</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt>Speed</dt>
-            <dd className="text-zinc-300">{unit.speed.toFixed(1)}</dd>
+            <dd className="text-zinc-300">{unit.speed.toFixed(1)} km/h</dd>
           </div>
           {unit.role && (
             <div className="flex justify-between gap-2">

@@ -13,6 +13,8 @@ import type {
   Side,
   UnitRole,
 } from "@/types/game";
+import { normalizeScenarioStartTime } from "@/lib/simulation-time";
+import { clampSimulationTickRate } from "@/lib/simulation-tick-rate";
 
 function normalizeResourceMap(value: unknown, label: string): ResourceMap {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -551,6 +553,34 @@ export function parseDefinition(raw: unknown): GameDefinition {
       })
       .filter((placement) => placement !== null);
 
+  let hoursPerTick: number | undefined;
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    const hp = (meta as Record<string, unknown>).hours_per_tick;
+    if (typeof hp === "number" && Number.isFinite(hp) && hp > 0) {
+      hoursPerTick = Math.min(168, Math.max(0.01, hp));
+    }
+  }
+  if (hoursPerTick === undefined) {
+    const top = obj.hours_per_tick;
+    if (typeof top === "number" && Number.isFinite(top) && top > 0) {
+      hoursPerTick = Math.min(168, Math.max(0.01, top));
+    }
+  }
+
+  let scenarioStartTime: string | undefined;
+  const tryScenarioStart = (v: unknown) => {
+    if (scenarioStartTime) return;
+    if (typeof v !== "string") return;
+    const n = normalizeScenarioStartTime(v);
+    if (n) scenarioStartTime = n;
+  };
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    const m = meta as Record<string, unknown>;
+    tryScenarioStart(m.scenario_start_time);
+    tryScenarioStart(m.simulation_start_time);
+  }
+  tryScenarioStart(obj.scenario_start_time);
+
   return {
     resources,
     bases,
@@ -563,6 +593,8 @@ export function parseDefinition(raw: unknown): GameDefinition {
     noFlyZones,
     ...(initialAirborne.length > 0 ? { initialAirborne } : {}),
     scenarioTitle,
+    ...(typeof hoursPerTick === "number" ? { hours_per_tick: hoursPerTick } : {}),
+    ...(typeof scenarioStartTime === "string" ? { scenario_start_time: scenarioStartTime } : {}),
   };
 }
 
@@ -575,9 +607,8 @@ export function getInitialTickRate(raw: unknown): number | undefined {
     return undefined;
   }
 
-  // Treat scenario_metadata.tick_rate as "ticks per second".
-  // The simulation engine converts this to an interval via 1000 / tickRate,
-  // so a tick_rate of 5 yields a 200ms simulation step.
-  return Math.min(10, Math.max(1, Math.round(rate)));
+  // Treat scenario_metadata.tick_rate as "ticks per second" of real time.
+  // Interval ms ≈ 1000 / tickRate (e.g. 0.05 → one tick every 20s; 5 → 200ms).
+  return clampSimulationTickRate(rate);
 }
 

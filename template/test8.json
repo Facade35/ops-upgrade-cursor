@@ -1,0 +1,348 @@
+{
+  "scenario_metadata": {
+    "title": "Operation Strait Shield - Escalation Drill",
+    "description": "High-intensity Taiwan Strait scenario for grading stress tests. A no-fly zone is declared while PRC forces escalate with strikes on local boats, forcing US carrier-based assets to defend and stabilize the strait.",
+    "tick_rate": 0.05,
+    "hours_per_tick": 0.25,
+    "scenario_start_time": "2025-06-15T06:00:00.000Z",
+    "starting_location": { "lat": 24.8, "lng": 123.6 }
+  },
+  "resources": {
+    "Tension": 45,
+    "JP8 Fuel (gal)": 1250000,
+    "MREs": 22000,
+    "Civilian Boats Safe": 6
+  },
+  "bases": [
+    {
+      "id": "base_cvn_east_taiwan",
+      "label": "USS Ronald Reagan CSG (East of Taiwan)",
+      "lat": 24.8,
+      "lng": 123.6,
+      "fuel_reserves": 700000,
+      "sidc": "10033000001201000000"
+    },
+    {
+      "id": "base_basa",
+      "label": "Cesar Basa AB, Philippines",
+      "lat": 14.9856,
+      "lng": 120.4931,
+      "fuel_reserves": 350000,
+      "sidc": "13032000001208030000"
+    }
+  ],
+  "assets": [
+    {
+      "id": "f35c_carrier",
+      "label": "F-35C Lightning II (Carrier Air Wing)",
+      "sidc": "13030100001101040000",
+      "quantity": 8,
+      "home_base": "base_cvn_east_taiwan",
+      "role": "FIGHTER",
+      "max_fuel": 22000,
+      "fuel_burn_rate": 16,
+      "aoe_radius": 120,
+      "speed": 2.1,
+      "capacity": 0,
+      "sensor_range_km": 220,
+      "detection_strength": 88,
+      "combat_rating": 90,
+      "side": "BLUE"
+    },
+    {
+      "id": "cv22_carrier",
+      "label": "CV-22B Osprey (Carrier Support)",
+      "sidc": "13030100001101130000",
+      "quantity": 4,
+      "home_base": "base_cvn_east_taiwan",
+      "role": "TRANSPORT",
+      "max_fuel": 12000,
+      "fuel_burn_rate": 10,
+      "aoe_radius": 20,
+      "speed": 0.6,
+      "capacity": 24,
+      "side": "BLUE"
+    },
+    {
+      "id": "p8_basa",
+      "label": "P-8 Poseidon",
+      "sidc": "13030100001101110000",
+      "quantity": 1,
+      "home_base": "base_basa",
+      "role": "ISR",
+      "max_fuel": 30000,
+      "fuel_burn_rate": 10,
+      "aoe_radius": 150,
+      "speed": 0.7,
+      "capacity": 0,
+      "sensor_range_km": 450,
+      "detection_strength": 92,
+      "side": "BLUE"
+    },
+    {
+      "id": "local_boats_proxy",
+      "label": "Local Fishing Boats Convoy (Proxy)",
+      "sidc": "10043000001402000000",
+      "quantity": 3,
+      "home_base": "base_basa",
+      "role": "TRANSPORT",
+      "max_fuel": 10000,
+      "fuel_burn_rate": 2,
+      "aoe_radius": 5,
+      "speed": 0.18,
+      "capacity": 20,
+      "side": "BLUE"
+    }
+  ],
+  "initial_airborne": [
+    {
+      "asset_id": "f35c_carrier",
+      "unit_index": 1,
+      "lat": 24.6,
+      "lng": 122.4,
+      "mission_type": "Strike",
+      "target_lat": 24.4,
+      "target_lng": 120.1
+    },
+    {
+      "asset_id": "p8_basa",
+      "unit_index": 1,
+      "lat": 24.9,
+      "lng": 121.8,
+      "mission_type": "ISR",
+      "target_lat": 24.6,
+      "target_lng": 120.0
+    },
+    {
+      "asset_id": "local_boats_proxy",
+      "unit_index": 1,
+      "lat": 24.35,
+      "lng": 119.95,
+      "mission_type": "Transport",
+      "target_lat": 24.25,
+      "target_lng": 120.2
+    },
+    {
+      "asset_id": "local_boats_proxy",
+      "unit_index": 2,
+      "lat": 24.2,
+      "lng": 119.8,
+      "mission_type": "Transport",
+      "target_lat": 24.1,
+      "target_lng": 120.0
+    }
+  ],
+  "hostile_bases": [
+    {
+      "id": "red_fujian_coast",
+      "label": "Fujian Coastal Air Complex",
+      "lat": 25.7,
+      "lng": 119.5,
+      "sidc": "13062000001208020000",
+      "side": "RED"
+    },
+    {
+      "id": "red_shantou_aux",
+      "label": "Shantou Auxiliary Launch Site",
+      "lat": 23.4,
+      "lng": 116.7,
+      "sidc": "13062000001208020000",
+      "side": "RED"
+    }
+  ],
+  "hostile_groups": [
+    {
+      "id": "red_j16_strike",
+      "label": "PLAAF J-16 Strike Package",
+      "side": "RED",
+      "home_base": "red_fujian_coast",
+      "quantity": 4,
+      "role": "FIGHTER",
+      "sidc": "13060100001101000000",
+      "max_fuel": 19000,
+      "fuel_burn_rate": 14,
+      "speed": 1.9,
+      "aoe_radius": 120,
+      "sensor_range_km": 170,
+      "engagement_range_km": 70,
+      "combat_rating": 84,
+      "signature": 52,
+      "route": [
+        { "lat": 25.2, "lng": 119.7 },
+        { "lat": 24.7, "lng": 119.9 },
+        { "lat": 24.3, "lng": 120.0 }
+      ]
+    },
+    {
+      "id": "red_j11_cap",
+      "label": "PLAAF J-11 Escort CAP",
+      "side": "RED",
+      "home_base": "red_fujian_coast",
+      "quantity": 2,
+      "role": "FIGHTER",
+      "sidc": "13060100001101000000",
+      "max_fuel": 16000,
+      "fuel_burn_rate": 11,
+      "speed": 1.4,
+      "aoe_radius": 95,
+      "sensor_range_km": 120,
+      "engagement_range_km": 50,
+      "combat_rating": 68,
+      "signature": 45,
+      "route": [
+        { "lat": 25.0, "lng": 119.8 },
+        { "lat": 24.5, "lng": 120.2 },
+        { "lat": 24.1, "lng": 120.1 }
+      ]
+    },
+    {
+      "id": "red_maritime_militia_proxy",
+      "label": "PRC Maritime Militia Fast Craft (Proxy)",
+      "side": "RED",
+      "home_base": "red_shantou_aux",
+      "quantity": 6,
+      "role": "TRANSPORT",
+      "sidc": "13060100001101130000",
+      "max_fuel": 12000,
+      "fuel_burn_rate": 4,
+      "speed": 0.35,
+      "aoe_radius": 20,
+      "sensor_range_km": 40,
+      "engagement_range_km": 25,
+      "combat_rating": 42,
+      "signature": 60,
+      "route": [
+        { "lat": 23.9, "lng": 118.8 },
+        { "lat": 24.1, "lng": 119.4 },
+        { "lat": 24.3, "lng": 119.9 }
+      ]
+    }
+  ],
+  "no_fly_zones": [
+    {
+      "id": "nfz_taiwan_strait",
+      "label": "Taiwan Strait Emergency NFZ",
+      "shape": "CIRCLE",
+      "center_lat": 24.5,
+      "center_lng": 119.8,
+      "radius_km": 260,
+      "active": false,
+      "applies_to": ["RED"],
+      "violation_policy": "WARN_THEN_DESTROY",
+      "warning_grace_ticks": 2
+    }
+  ],
+  "events": [
+    {
+      "id": "ev_red_strike_t10",
+      "tick": 10,
+      "note": "PLAAF J-16 strike package launches toward local boat lanes.",
+      "injects": { "Tension": 8 },
+      "actions": [
+        { "type": "SPAWN_HOSTILE_GROUP", "group_id": "red_j16_strike" }
+      ]
+    },
+    {
+      "id": "ev_red_militia_t14",
+      "tick": 14,
+      "note": "PRC maritime militia proxy craft begin attacks against local boats in the strait.",
+      "injects": { "Tension": 10, "Civilian Boats Safe": -2 },
+      "actions": [
+        { "type": "SPAWN_HOSTILE_GROUP", "group_id": "red_maritime_militia_proxy" }
+      ]
+    },
+    {
+      "id": "ev_red_escort_t18",
+      "tick": 18,
+      "note": "J-11 escort CAP launches to cover maritime interdiction activity.",
+      "injects": { "Tension": 6 },
+      "actions": [
+        { "type": "SPAWN_HOSTILE_GROUP", "group_id": "red_j11_cap" }
+      ]
+    },
+    {
+      "id": "ev_boats_lost_t22",
+      "tick": 22,
+      "note": "Additional strikes reported on local vessels; urgency increases for defensive action.",
+      "injects": { "Tension": 7, "Civilian Boats Safe": -1 },
+      "actions": []
+    }
+  ],
+  "inject_triggers": [
+    {
+      "id": "inj_nfz_order_t4",
+      "tick": 4,
+      "type": "INTEL",
+      "title": "Declare and Enforce Strait NFZ",
+      "content": "Regional command directs immediate no-fly-zone declaration across the Taiwan Strait. Prepare legal, operational, and escalation-control guidance.",
+      "lat": 24.5,
+      "lng": 119.8,
+      "priority": "HIGH",
+      "required_response": "MFR",
+      "deadline_tick": 10,
+      "map_visible": true,
+      "sidc": "13065100001101000000",
+      "strictness": "MISSION_READY"
+    },
+    {
+      "id": "inj_boats_under_fire_t11",
+      "tick": 11,
+      "type": "OPS",
+      "title": "PRC Strikes on Local Boats",
+      "content": "Multiple local fishing boats are taking fire in the central strait. Generate an immediate COA that defends boats while minimizing uncontrolled escalation.",
+      "lat": 24.3,
+      "lng": 119.95,
+      "priority": "CRITICAL",
+      "required_response": "COA",
+      "deadline_tick": 18,
+      "map_visible": true,
+      "sidc": "13044000001601000000",
+      "strictness": "ZERO_TOLERANCE"
+    },
+    {
+      "id": "inj_distress_calls_t16",
+      "tick": 16,
+      "type": "INTEL",
+      "title": "Distress Calls Saturating Guard Channel",
+      "content": "Civilian distress traffic indicates additional boats drifting in contested waters. Prioritize defensive screening and rescue sequencing from eastern Taiwan posture.",
+      "lat": 24.15,
+      "lng": 119.85,
+      "priority": "HIGH",
+      "required_response": "MFR",
+      "deadline_tick": 21,
+      "map_visible": true,
+      "sidc": "13044000001702030000",
+      "strictness": "MISSION_READY"
+    },
+    {
+      "id": "inj_defend_convoy_t21",
+      "tick": 21,
+      "type": "OPS",
+      "title": "Defend Remaining Boats Now",
+      "content": "Command authority directs immediate defense of remaining local boats. Use carrier-based F-35 and CV-22 assets to screen, deter, and support extraction without crossing escalation thresholds.",
+      "lat": 24.25,
+      "lng": 120.05,
+      "priority": "CRITICAL",
+      "required_response": "COA",
+      "deadline_tick": 28,
+      "map_visible": true,
+      "sidc": "13033000001210040200",
+      "strictness": "ZERO_TOLERANCE"
+    },
+    {
+      "id": "inj_second_order_t30",
+      "tick": 30,
+      "type": "INTEL",
+      "title": "Second-Order Escalation Risk",
+      "content": "PRC messaging accuses coalition forces of interference. Provide follow-on MFR outlining proportionality, ROE compliance, and next 12-tick stabilization actions.",
+      "lat": 24.6,
+      "lng": 120.3,
+      "priority": "HIGH",
+      "required_response": "MFR",
+      "deadline_tick": 36,
+      "map_visible": true,
+      "sidc": "13065100001101000000",
+      "strictness": "MISSION_READY"
+    }
+  ]
+}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, Inbox, XCircle } from "lucide-react";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeploymentMap2D, type DeploymentMapPoint, type DeploymentMapRoute } from "@/components/deployment-map-2d";
 
 export function AdminDeploymentsTab() {
   const { state, decideDeploymentRequest } = useRemoteGameState();
@@ -12,6 +13,61 @@ export function AdminDeploymentsTab() {
 
   const pending = state.deploymentRequests.filter(
     (request) => request.status === "PENDING_APPROVAL"
+  );
+
+  const resolveOrigin = (unitId: string) => {
+    const unit = state.units.find((candidate) => candidate.id === unitId);
+    if (!unit) return null;
+    if (unit.current_base) {
+      const base = state.bases.find((candidate) => candidate.id === unit.current_base);
+      if (base) return { lat: base.lat, lng: base.lng };
+    }
+    if (Number.isFinite(unit.lat) && Number.isFinite(unit.lng)) {
+      return { lat: unit.lat, lng: unit.lng };
+    }
+    return null;
+  };
+
+  const pendingRoutes: DeploymentMapRoute[] = useMemo(() => {
+    const routes: DeploymentMapRoute[] = [];
+    for (const request of pending) {
+      const origin = resolveOrigin(request.unit_id);
+      if (!origin) continue;
+      routes.push({
+        id: request.id,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        targetLat: request.target_lat,
+        targetLng: request.target_lng,
+        unitLabel: request.unit_label,
+        missionType: request.mission_type,
+        departureTick: request.departure_tick,
+        status: request.status,
+      });
+    }
+    return routes;
+  }, [pending, state.bases, state.units]);
+
+  const mapPoints: DeploymentMapPoint[] = useMemo(
+    () => [
+      ...state.bases.map((base) => ({
+        id: `base-${base.id}`,
+        lat: base.lat,
+        lng: base.lng,
+        label: base.label,
+        kind: "BASE" as const,
+        sidc: base.sidc,
+      })),
+      ...state.units.map((unit) => ({
+        id: `unit-${unit.id}`,
+        lat: unit.lat,
+        lng: unit.lng,
+        label: unit.label,
+        kind: "UNIT" as const,
+        sidc: unit.sidc,
+      })),
+    ],
+    [state.bases, state.units]
   );
 
   const onDecision = async (requestId: string, decision: "approve" | "deny") => {
@@ -30,6 +86,14 @@ export function AdminDeploymentsTab() {
           </p>
         </div>
         <Badge variant="outline">{pending.length}</Badge>
+      </div>
+
+      <div className="mb-3">
+        <DeploymentMap2D
+          title="Pending Sortie Tactical Map"
+          routes={pendingRoutes}
+          points={mapPoints}
+        />
       </div>
 
       {pending.length === 0 ? (

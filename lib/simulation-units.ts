@@ -1,5 +1,15 @@
 import type { Asset, Base, GameDefinition, SpawnedUnit } from "@/types/game";
 
+/** Default simulated hours per tick when a scenario does not set `hours_per_tick`. */
+export const DEFAULT_HOURS_PER_TICK = 1;
+
+export function resolveHoursPerTick(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_HOURS_PER_TICK;
+  }
+  return Math.min(168, Math.max(0.01, value));
+}
+
 export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUnit[] {
   const baseById = new Map(bases.map((base) => [base.id, base]));
   const units: SpawnedUnit[] = [];
@@ -82,8 +92,10 @@ export function applyInitialAirborne(
 
 export function applyFuelTick(
   units: SpawnedUnit[],
-  bases: Base[]
+  bases: Base[],
+  hoursPerTick: number = DEFAULT_HOURS_PER_TICK
 ): { units: SpawnedUnit[]; bases: Base[] } {
+  const h = resolveHoursPerTick(hoursPerTick);
   const nextBases = bases.map((base) => ({ ...base }));
   const baseById = new Map(nextBases.map((base) => [base.id, base]));
 
@@ -92,9 +104,10 @@ export function applyFuelTick(
       return unit;
     }
     if (unit.status === "AIRBORNE") {
+      const burn = Math.max(0, unit.fuel_burn_rate) * h;
       return {
         ...unit,
-        current_fuel: Math.max(0, unit.current_fuel - unit.fuel_burn_rate),
+        current_fuel: Math.max(0, unit.current_fuel - burn),
       };
     }
 
@@ -143,12 +156,18 @@ export function distanceKm(
 }
 
 export function estimateFuelRequired(
-  unit: Pick<SpawnedUnit, "lat" | "lng" | "fuel_burn_rate">,
+  unit: Pick<SpawnedUnit, "lat" | "lng" | "fuel_burn_rate" | "speed">,
   targetLat: number,
   targetLng: number
 ): number {
   const distance = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
-  return Math.max(0, distance * Math.max(0, unit.fuel_burn_rate));
+  const burn = Math.max(0, unit.fuel_burn_rate);
+  const speed = Math.max(0, unit.speed);
+  if (speed > 0) {
+    const hours = distance / speed;
+    return Math.max(0, hours * burn);
+  }
+  return Math.max(0, distance * burn);
 }
 
 export function isWithinAoe(
@@ -162,7 +181,11 @@ export function isWithinAoe(
   return distanceKm(sourceLat, sourceLng, targetLat, targetLng) <= radiusKm;
 }
 
-export function applyMovementTick(units: SpawnedUnit[]): SpawnedUnit[] {
+export function applyMovementTick(
+  units: SpawnedUnit[],
+  hoursPerTick: number = DEFAULT_HOURS_PER_TICK
+): SpawnedUnit[] {
+  const h = resolveHoursPerTick(hoursPerTick);
   return units.map((unit) => {
     if (unit.status === "DESTROYED") return unit;
     if (unit.status !== "AIRBORNE") return unit;
@@ -189,7 +212,7 @@ export function applyMovementTick(units: SpawnedUnit[]): SpawnedUnit[] {
     const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
     if (remaining <= 0) return unit;
 
-    const stepKm = Math.max(0, unit.speed);
+    const stepKm = Math.max(0, unit.speed) * h;
     if (stepKm <= 0) return unit;
 
     if (stepKm >= remaining) {

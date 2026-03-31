@@ -17,13 +17,14 @@ This is a Next.js web-based Command and Control (C2) simulation for a 14-cadet t
 - **AOE Rings:** Rendered as `customThreeObject` using Three.js `RingGeometry`. Their altitudes MUST precisely match the asset marker altitudes to prevent 3D parallax illusions. Ring colors map to unit role.
 
 ## 4. Mechanics & Doctrine
+- **Simulation units:** Speed is calculated and expressed in **mph** (miles per hour). Fuel quantities (burn rates, reserves, transfers, tanker ops) are measured in **lbs** (pounds).
 - **Logistics:** Units have `fuel_reserves`. AIRBORNE units burn fuel based on vector distance. GROUNDED units subtract fuel from their base's master reserves.
 - **Deployments:** Cadets use a Sortie Request form. The Admin approves it, establishing a `departure_tick` and `target_coords`.
 - **Refueling:** Tankers have an `aoe_radius` to refuel airborne units dynamically.
 - **Injects:** Timeline events have specific trigger ticks and remain hidden until that tick is reached.
 
 ## 5. AI Autonomy Rules (CRITICAL FOR FUTURE PROMPTS)
-- **Rule A:** Never modify `test6.json` unless explicitly asked.
+- **Rule A:** Never modify `test8.json` unless explicitly asked.
 - **Rule B:** Always maintain the `Tactical Dark` (`#0a0a0a`) Joint Operations Center (JOC) visual aesthetic with `JetBrains Mono` font.
 - **Rule C:** If proposing a new mechanic, ensure it hooks into the `current_tick` system.
 - **Rule D:** Feel free to update `memory.md` with more pertinent information that may be useful to new agents.

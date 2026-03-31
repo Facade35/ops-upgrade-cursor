@@ -7,6 +7,7 @@ import { estimateFuelRequired } from "@/lib/simulation-units";
 import type { DeploymentMissionType } from "@/types/game";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DeploymentMap2D, type DeploymentMapPoint, type DeploymentMapRoute } from "@/components/deployment-map-2d";
 
 const MISSION_TYPES: DeploymentMissionType[] = [
   "ISR",
@@ -47,6 +48,75 @@ export function CadetDeploymentsTab() {
   const pendingSorties = state.deploymentRequests.filter(
     (req) => req.status === "PENDING_APPROVAL"
   );
+
+  const resolveOrigin = (unitId: string) => {
+    const unit = state.units.find((candidate) => candidate.id === unitId);
+    if (!unit) return null;
+    if (unit.current_base) {
+      const base = state.bases.find((candidate) => candidate.id === unit.current_base);
+      if (base) return { lat: base.lat, lng: base.lng };
+    }
+    if (Number.isFinite(unit.lat) && Number.isFinite(unit.lng)) {
+      return { lat: unit.lat, lng: unit.lng };
+    }
+    return null;
+  };
+
+  const selectedOrigin = selectedUnit ? resolveOrigin(selectedUnit.id) : null;
+  const hasValidTarget = Number.isFinite(lat) && Number.isFinite(lng);
+  const draftRoute: DeploymentMapRoute[] =
+    selectedUnit && selectedOrigin && hasValidTarget
+      ? [
+          {
+            id: "draft-route",
+            originLat: selectedOrigin.lat,
+            originLng: selectedOrigin.lng,
+            targetLat: lat,
+            targetLng: lng,
+            unitLabel: selectedUnit.label,
+            missionType,
+            departureTick: Number.isFinite(Number(departureTick))
+              ? Number(departureTick)
+              : undefined,
+            status: "DRAFT",
+          },
+        ]
+      : [];
+  const pendingRoutes: DeploymentMapRoute[] = pendingSorties
+    .map((request) => {
+      const origin = resolveOrigin(request.unit_id);
+      if (!origin) return null;
+      return {
+        id: request.id,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        targetLat: request.target_lat,
+        targetLng: request.target_lng,
+        unitLabel: request.unit_label,
+        missionType: request.mission_type,
+        departureTick: request.departure_tick,
+        status: request.status,
+      };
+    })
+    .filter((route): route is DeploymentMapRoute => route !== null);
+  const mapPoints: DeploymentMapPoint[] = [
+    ...state.bases.map((base) => ({
+      id: `base-${base.id}`,
+      lat: base.lat,
+      lng: base.lng,
+      label: base.label,
+      kind: "BASE" as const,
+      sidc: base.sidc,
+    })),
+    ...groundedUnits.map((unit) => ({
+      id: `unit-${unit.id}`,
+      lat: unit.lat,
+      lng: unit.lng,
+      label: unit.label,
+      kind: "UNIT" as const,
+      sidc: unit.sidc,
+    })),
+  ];
 
   const canSubmit =
     !!selectedUnit &&
@@ -178,6 +248,16 @@ export function CadetDeploymentsTab() {
           {submitting ? "Submitting..." : "Submit Deployment Request"}
         </Button>
       </form>
+
+      <DeploymentMap2D
+        title="Deployment Tactical Map"
+        routes={[...pendingRoutes, ...draftRoute]}
+        points={mapPoints}
+        onMapClick={({ lat: clickLat, lng: clickLng }) => {
+          setTargetLat(clickLat.toFixed(4));
+          setTargetLng(clickLng.toFixed(4));
+        }}
+      />
 
       <div className="rounded-xl border bg-card p-4">
         <div className="mb-3 flex items-center justify-between">

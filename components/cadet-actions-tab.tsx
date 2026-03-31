@@ -144,6 +144,8 @@ function TriggerResponseCard({
   const requiresMfr = requiredResponse === "MFR";
   const requiresCoa = requiredResponse === "COA";
   const requiresResponse = requiresMfr || requiresCoa;
+  const resubmitFeedback =
+    responseRecord?.status === "resubmit_required" ? responseRecord.grade : undefined;
 
   const ticksRemaining =
     trigger.deadline_tick != null ? trigger.deadline_tick - currentTick : null;
@@ -312,14 +314,18 @@ function TriggerResponseCard({
             <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-amber-400" />
             <div>
               <p className="text-sm font-semibold text-amber-300">
-                Response Submitted — Awaiting Staff Review
+                {responseRecord.status === "approved"
+                  ? "APPROVED"
+                  : "Response Submitted — Awaiting Staff Review"}
               </p>
               <p className="mt-0.5 text-xs text-zinc-500">
                 {responseRecord.responseType} submitted at{" "}
                 {new Date(responseRecord.submittedAt).toLocaleTimeString()}
               </p>
               <p className="mt-2 text-xs text-zinc-400">
-                Staff will provide feedback directly if updates are required.
+                {responseRecord.status === "approved"
+                  ? "Your response has been approved by staff."
+                  : "Staff will provide feedback directly if updates are required."}
               </p>
             </div>
           </div>
@@ -330,6 +336,26 @@ function TriggerResponseCard({
               <p className="rounded border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-300">
                 Resubmission requested by staff. Update your MFR and submit again.
               </p>
+            )}
+            {resubmitFeedback && (
+              <div className="rounded border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
+                <p className="font-semibold uppercase tracking-wider text-[10px] text-amber-300">
+                  AI Feedback
+                </p>
+                <p className="mt-1">{resubmitFeedback.summary}</p>
+                {resubmitFeedback.faults.length > 0 && (
+                  <ul className="mt-1 list-disc pl-4">
+                    {resubmitFeedback.faults.slice(0, 3).map((fault, idx) => (
+                      <li key={idx}>{fault}</li>
+                    ))}
+                  </ul>
+                )}
+                {resubmitFeedback.recommendations?.length ? (
+                  <p className="mt-1 text-amber-200">
+                    Next: {resubmitFeedback.recommendations.slice(0, 2).join(" | ")}
+                  </p>
+                ) : null}
+              </div>
             )}
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
               Memorandum For Record
@@ -362,6 +388,26 @@ function TriggerResponseCard({
               <p className="rounded border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs text-red-300">
                 Resubmission requested by staff. Update your COA and submit again.
               </p>
+            )}
+            {resubmitFeedback && (
+              <div className="rounded border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
+                <p className="font-semibold uppercase tracking-wider text-[10px] text-amber-300">
+                  AI Feedback
+                </p>
+                <p className="mt-1">{resubmitFeedback.summary}</p>
+                {resubmitFeedback.faults.length > 0 && (
+                  <ul className="mt-1 list-disc pl-4">
+                    {resubmitFeedback.faults.slice(0, 3).map((fault, idx) => (
+                      <li key={idx}>{fault}</li>
+                    ))}
+                  </ul>
+                )}
+                {resubmitFeedback.recommendations?.length ? (
+                  <p className="mt-1 text-amber-200">
+                    Next: {resubmitFeedback.recommendations.slice(0, 2).join(" | ")}
+                  </p>
+                ) : null}
+              </div>
             )}
             <COAForm
               assets={assets}
@@ -396,10 +442,18 @@ function TriggerResponseCard({
 export function CadetActionsTab() {
   const { state, injectResponses, submitInjectResponse, gradeInjectResponse } =
     useRemoteGameState();
+  const [activeInjectIndex, setActiveInjectIndex] = useState(0);
 
   const visibleTriggers = state.injectTriggers.filter(
     (t) => t.tick <= state.tick
   );
+
+  useEffect(() => {
+    setActiveInjectIndex((prev) => {
+      if (visibleTriggers.length === 0) return 0;
+      return Math.min(prev, visibleTriggers.length - 1);
+    });
+  }, [visibleTriggers.length]);
 
   const handleSubmit = (
     trigger: InjectTrigger,
@@ -441,20 +495,45 @@ export function CadetActionsTab() {
     );
   }
 
+  const activeTrigger = visibleTriggers[activeInjectIndex];
+
   return (
     <div className="space-y-4">
-      {visibleTriggers.map((t) => (
-        <TriggerResponseCard
-          key={triggerKey(t)}
-          trigger={t}
-          currentTick={state.tick}
-          assets={state.assets}
-          responseRecord={injectResponses[triggerKey(t)]}
-          onSubmit={(triggerId, responseType, content) =>
-            handleSubmit(t, responseType, content)
+      <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setActiveInjectIndex((prev) => Math.max(prev - 1, 0))}
+          disabled={activeInjectIndex === 0}
+        >
+          Previous
+        </Button>
+        <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+          Inject {activeInjectIndex + 1} of {visibleTriggers.length}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setActiveInjectIndex((prev) =>
+              Math.min(prev + 1, visibleTriggers.length - 1)
+            )
           }
-        />
-      ))}
+          disabled={activeInjectIndex === visibleTriggers.length - 1}
+        >
+          Next
+        </Button>
+      </div>
+      <TriggerResponseCard
+        key={triggerKey(activeTrigger)}
+        trigger={activeTrigger}
+        currentTick={state.tick}
+        assets={state.assets}
+        responseRecord={injectResponses[triggerKey(activeTrigger)]}
+        onSubmit={(triggerId, responseType, content) =>
+          handleSubmit(activeTrigger, responseType, content)
+        }
+      />
     </div>
   );
 }

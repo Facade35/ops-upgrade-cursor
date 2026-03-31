@@ -3,12 +3,17 @@
 import Globe3D from "@/components/Globe3D";
 import { PulseSidebar } from "@/components/pulse-sidebar";
 import { triggerKey } from "@/components/inject-trigger-card";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IntelArchive } from "@/components/intel-archive";
 import { CadetActionsTab } from "@/components/cadet-actions-tab";
 import { CadetDeploymentsTab } from "@/components/cadet-deployments-tab";
+import { getSimulationTimeDisplay } from "@/lib/simulation-time";
+import { cn } from "@/lib/utils";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
+
+/** Status pills (plain divs — avoids Badge base `px-2.5` fighting custom padding). */
+const dashboardStatusPill =
+  "inline-flex items-center justify-center rounded-full border border-zinc-700/90 bg-zinc-800 px-8 py-2.5 text-xs font-medium leading-snug text-zinc-100 shadow-sm";
 
 function DashboardContent() {
   const { state, injectResponses } = useRemoteGameState();
@@ -36,13 +41,23 @@ function DashboardContent() {
               <h1 className="text-2xl font-semibold tracking-[0.1em] uppercase">
                 {scenarioTitle}
               </h1>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">
+              <div className="mt-3 flex flex-wrap items-center gap-2.5">
+                <div className={cn(dashboardStatusPill)} role="status">
                   {state.paused ? "Paused" : "Running"}
-                </Badge>
-                <Badge variant="outline">Tick {state.tick}</Badge>
-                <Badge variant="outline">Blue Units {state.units.length}</Badge>
-                <Badge variant="outline">Tracks {state.knownTracks.length}</Badge>
+                </div>
+                <div className={cn(dashboardStatusPill, "font-mono tabular-nums")} role="status">
+                  {getSimulationTimeDisplay(
+                    state.simulationStartTimeIso,
+                    state.tick,
+                    state.hoursPerTick
+                  )}
+                </div>
+                <div className={cn(dashboardStatusPill)} role="status">
+                  Blue Units {state.units.length}
+                </div>
+                <div className={cn(dashboardStatusPill)} role="status">
+                  Tracks {state.knownTracks.length}
+                </div>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Read-only view. Intel and resources update in real time from the

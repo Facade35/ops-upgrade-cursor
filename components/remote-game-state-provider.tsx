@@ -14,8 +14,10 @@ import { usePathname } from "next/navigation";
 import type {
   DeploymentMissionType,
   DeploymentRequest,
+  EvalContext,
   EventAction,
   GameDefinition,
+  HostileGroupDefinition,
   HostileUnit,
   InjectKind,
   InjectResponseRequirement,
@@ -32,8 +34,12 @@ import {
   distanceKm,
   estimateFuelRequired,
   isWithinAoe,
+  resolveHoursPerTick,
   spawnUnitsFromAssets,
 } from "@/lib/simulation-units";
+import { normalizeScenarioStartTime } from "@/lib/simulation-time";
+import { clampSimulationTickRate } from "@/lib/simulation-tick-rate";
+import { isExplicitAirSidc } from "@/lib/sidc-symbol-set";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   clearSimulationState,
@@ -70,6 +76,8 @@ const defaultState: GameState = {
   noFlyZones: [],
   tick: 0,
   tickRate: 1,
+  hoursPerTick: 1,
+  simulationStartTimeIso: null,
   paused: false,
   status: "UNINITIALIZED",
   loadedFileName: null,
@@ -132,6 +140,8 @@ function saveSession(state: GameState): void {
         loadedFileName: state.loadedFileName,
         tick: state.tick,
         tickRate: state.tickRate,
+        hoursPerTick: state.hoursPerTick,
+        simulationStartTimeIso: state.simulationStartTimeIso,
         paused: state.paused,
         status: state.status,
         globalTension: state.globalTension,
@@ -205,6 +215,8 @@ export function serializeState(s: GameState): GameState {
       ...defaultState,
       tick: s.tick,
       tickRate: s.tickRate,
+      hoursPerTick: s.hoursPerTick ?? 1,
+      simulationStartTimeIso: s.simulationStartTimeIso ?? null,
       paused: s.paused,
       status: s.status,
       globalTension: s.globalTension,
@@ -290,6 +302,200 @@ function buildInjectTriggerKey(trigger: InjectTrigger): string {
   return `${trigger.tick}:${trigger.title ?? "inject"}:${lat}:${lng}`;
 }
 
+const DEFAULT_ALLOWED_TYPES = ["INTEL", "OPS", "ADMIN"];
+const DEFAULT_ALLOWED_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+const DEFAULT_REQUIRED_RESPONSES: InjectResponseRequirement[] = ["MFR", "COA", "NONE"];
+
+function normalizeForMatch(value: string | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+function deriveTopRisks(state: GameState): string[] {
+  const risks: string[] = [];
+  const overdueRequired = state.injectTriggers.filter((trigger) => {
+    if (trigger.tick > state.tick) return false;
+    if (trigger.required_response !== "MFR" && trigger.required_response !== "COA") {
+      return false;
+    }
+    return typeof trigger.deadline_tick === "number" && trigger.deadline_tick <= state.tick;
+  }).length;
+  if (overdueRequired > 0) {
+    risks.push(`${overdueRequired} response task(s) are past due.`);
+  }
+  if (state.globalTension >= 70) {
+    risks.push(`Global tension is elevated at ${state.globalTension}.`);
+  }
+  const lowFuelAirborne = state.units
+    .filter((unit) => unit.status === "AIRBORNE" && unit.max_fuel > 0)
+    .filter((unit) => unit.current_fuel / unit.max_fuel <= 0.35);
+  if (lowFuelAirborne.length > 0) {
+    risks.push(`${lowFuelAirborne.length} airborne unit(s) are below 35% fuel.`);
+  }
+  if (risks.length === 0) {
+    risks.push("No immediate mission-critical risk flags detected.");
+  }
+  return risks.slice(0, 3);
+}
+
+function buildRelevantAssets(
+  state: GameState,
+  trigger: InjectTrigger | undefined,
+  responseType: "MFR" | "COA",
+  content: string
+): EvalContext["relevantAssets"] {
+  if (state.assets.length === 0) return [];
+  const roleWeights: Record<string, number> = {
+    FIGHTER: 1,
+    ISR: 1,
+    TRANSPORT: 1,
+    TANKER: 1,
+  };
+  if (responseType === "COA") {
+    roleWeights.TRANSPORT += 2;
+    roleWeights.FIGHTER += 1;
+  }
+  if (trigger?.type === "INTEL") {
+    roleWeights.ISR += 2;
+    roleWeights.FIGHTER += 1;
+  }
+  if (trigger?.type === "OPS") {
+    roleWeights.TRANSPORT += 2;
+    roleWeights.TANKER += 1;
+  }
+
+  const keywordCorpus = normalizeForMatch(
+    `${content} ${trigger?.title ?? ""} ${trigger?.content ?? ""}`
+  );
+  const scored = state.assets.map((asset) => {
+    const units = state.units.filter((unit) => unit.asset_id === asset.id);
+    const airborne = units.filter((unit) => unit.status === "AIRBORNE").length;
+    const grounded = units.filter((unit) => unit.status === "GROUNDED").length;
+    const avgFuelRatio =
+      units.length > 0
+        ? units.reduce(
+            (sum, unit) => sum + (unit.max_fuel > 0 ? unit.current_fuel / unit.max_fuel : 0),
+            0
+          ) / units.length
+        : undefined;
+    const nearestDistanceKm =
+      typeof trigger?.lat === "number" && typeof trigger?.lng === "number" && units.length > 0
+        ? Math.min(...units.map((unit) => distanceKm(unit.lat, unit.lng, trigger.lat!, trigger.lng!)))
+        : undefined;
+    const assetNeedle = normalizeForMatch(`${asset.id} ${asset.label}`);
+    const mentionScore = assetNeedle.length > 0 && keywordCorpus.includes(assetNeedle) ? 3 : 0;
+    const roleScore = asset.role ? roleWeights[asset.role] ?? 0 : 0;
+    const proximityScore =
+      typeof nearestDistanceKm === "number"
+        ? Math.max(0, 3 - nearestDistanceKm / 600)
+        : 0;
+    const score = roleScore + mentionScore + proximityScore + (airborne > 0 ? 0.5 : 0);
+    const nearestUnit = units[0];
+
+    return {
+      score,
+      nearestDistanceKm,
+      summary: {
+        id: asset.id,
+        label: asset.label,
+        role: asset.role,
+        quantity: asset.quantity,
+        airborne,
+        grounded,
+        avgFuelRatio:
+          typeof avgFuelRatio === "number" ? Math.round(avgFuelRatio * 100) / 100 : undefined,
+        nearestDistanceKm:
+          typeof nearestDistanceKm === "number"
+            ? Math.round(nearestDistanceKm * 10) / 10
+            : undefined,
+        roughLocation: nearestUnit
+          ? `${nearestUnit.lat.toFixed(2)}, ${nearestUnit.lng.toFixed(2)}`
+          : undefined,
+      },
+    };
+  });
+
+  return scored
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const aDist = a.nearestDistanceKm ?? Number.POSITIVE_INFINITY;
+      const bDist = b.nearestDistanceKm ?? Number.POSITIVE_INFINITY;
+      return aDist - bDist;
+    })
+    .slice(0, 6)
+    .map((entry) => entry.summary);
+}
+
+function buildEvalContext(
+  state: GameState,
+  triggerId: string,
+  responseType: "MFR" | "COA",
+  content: string
+): EvalContext {
+  const trigger = state.injectTriggers.find(
+    (candidate) =>
+      candidate.id === triggerId || buildInjectTriggerKey(candidate) === triggerId
+  );
+  const releasedInjects = state.injectTriggers
+    .filter((candidate) => candidate.tick <= state.tick)
+    .sort((a, b) => b.tick - a.tick);
+  const allowedTypes = uniqueStrings(
+    releasedInjects.map((candidate) => candidate.type ?? "")
+  );
+  const allowedPriorities = uniqueStrings(
+    releasedInjects.map((candidate) => candidate.priority ?? "")
+  );
+
+  return {
+    currentTrigger: trigger
+      ? {
+          id: triggerId,
+          tick: trigger.tick,
+          title: trigger.title,
+          type: trigger.type,
+          priority: trigger.priority,
+          required_response: trigger.required_response,
+          deadline_tick: trigger.deadline_tick,
+          lat: trigger.lat,
+          lng: trigger.lng,
+        }
+      : undefined,
+    missionSnapshot: {
+      tick: state.tick,
+      globalTension: state.globalTension,
+      topRisks: deriveTopRisks(state),
+    },
+    relevantAssets: buildRelevantAssets(state, trigger, responseType, content),
+    recentInjects: releasedInjects.slice(0, 4).map((recent) => ({
+      id:
+        typeof recent.id === "string" && recent.id.trim().length > 0
+          ? recent.id
+          : buildInjectTriggerKey(recent),
+      tick: recent.tick,
+      title: recent.title,
+      type: recent.type,
+      priority: recent.priority,
+    })),
+    constraints: {
+      allowedTypes: allowedTypes.length > 0 ? allowedTypes : DEFAULT_ALLOWED_TYPES,
+      allowedPriorities:
+        allowedPriorities.length > 0 ? allowedPriorities : DEFAULT_ALLOWED_PRIORITIES,
+      allowedRequiredResponses: DEFAULT_REQUIRED_RESPONSES,
+      tickWindow: {
+        min: state.tick + 1,
+        max: state.tick + 40,
+      },
+      deadlineWindow: {
+        min: state.tick + 2,
+        max: state.tick + 80,
+      },
+    },
+  };
+}
+
 function spawnHostileUnitsForGroup(
   state: GameState,
   groupId: string
@@ -305,6 +511,7 @@ function spawnHostileUnitsForGroup(
   if (existingForGroup.length > 0) return state.hostileUnits;
 
   const nextUnits = [...state.hostileUnits];
+  const hostileMobility = isExplicitAirSidc(group.sidc) ? "AIRBORNE" : "SURFACE";
   for (let i = 0; i < Math.max(1, group.quantity); i += 1) {
     const waypoint = group.route?.[0];
     nextUnits.push({
@@ -312,7 +519,7 @@ function spawnHostileUnitsForGroup(
       group_id: group.id,
       label: `${group.label} ${i + 1}`,
       side: group.side,
-      status: "AIRBORNE",
+      status: hostileMobility,
       role: group.role,
       sidc: group.sidc,
       home_base: group.home_base,
@@ -350,7 +557,7 @@ function applyRetaskToRedAssets(
     retaskAllGroups || groupScope.has(groupId);
 
   const hostileUnits = state.hostileUnits.map((unit) => {
-    if (unit.status !== "AIRBORNE") return unit;
+    if (unit.status !== "AIRBORNE" && unit.status !== "SURFACE") return unit;
     if (!appliesToGroup(unit.group_id)) return unit;
     return {
       ...unit,
@@ -457,7 +664,13 @@ function findTransportInjectOnStation(
 // ─── Inject response types ────────────────────────────────────────────────────
 
 export interface InjectResponseRecord {
-  status: "pending" | "graded" | "resubmit_required" | "error" | "expired";
+  status:
+    | "pending"
+    | "graded"
+    | "approved"
+    | "resubmit_required"
+    | "error"
+    | "expired";
   responseType: "MFR" | "COA";
   content: string;
   submittedAt: string;
@@ -488,6 +701,23 @@ export interface CreateAdminInjectInput {
   nfzAppliesTo?: Side[];
   warningGraceTicks?: number;
   dropZoneRadiusKm?: number;
+  spawnGroup?: {
+    id?: string;
+    label?: string;
+    home_base?: string;
+    quantity?: number;
+    role?: HostileGroupDefinition["role"];
+    sidc?: string;
+    max_fuel?: number;
+    fuel_burn_rate?: number;
+    speed?: number;
+    aoe_radius?: number;
+    sensor_range_km?: number;
+    engagement_range_km?: number;
+    combat_rating?: number;
+    signature?: number;
+    route?: Array<{ lat: number; lng: number }>;
+  };
 }
 
 type PersistedStateWithResponses = GameState & {
@@ -863,9 +1093,11 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
           defaultState.globalTension
         ),
         tickRate:
-          typeof initialTickRate === "number" && initialTickRate >= 1
-            ? Math.min(10, Math.max(1, Math.round(initialTickRate)))
+          typeof initialTickRate === "number" && initialTickRate > 0
+            ? clampSimulationTickRate(initialTickRate)
             : 1,
+        hoursPerTick: resolveHoursPerTick(definition.hours_per_tick),
+        simulationStartTimeIso: normalizeScenarioStartTime(definition.scenario_start_time),
         tick: 0,
         paused: false,
         status: "RUNNING",
@@ -882,7 +1114,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
   const setTickRate = useCallback(
     (tickRate: number) => {
       setStateAndPersist((s) => {
-        const clampedRate = Math.min(10, Math.max(1, Math.round(tickRate)));
+        const clampedRate = clampSimulationTickRate(tickRate);
         const next = { ...s, tickRate: clampedRate };
         void persistSimulationState({
           ...next,
@@ -1227,6 +1459,103 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
             ].sort((a, b) => a.tick - b.tick),
           };
         }
+      } else if (input.injectKind === "SPAWN_HOSTILE_GROUP") {
+        if (stateRef.current.hostileBases.length === 0) return false;
+        const requestedHomeBase = input.spawnGroup?.home_base?.trim();
+        const resolvedHomeBase = stateRef.current.hostileBases.some(
+          (base) => base.id === requestedHomeBase
+        )
+          ? requestedHomeBase
+          : stateRef.current.hostileBases[0]?.id;
+        if (!resolvedHomeBase) return false;
+
+        const spawnGroupId = input.spawnGroup?.id?.trim() || createEntityId("redgrp");
+        const spawnGroup: HostileGroupDefinition = {
+          id: spawnGroupId,
+          label: input.spawnGroup?.label?.trim() || title,
+          side: "RED",
+          home_base: resolvedHomeBase,
+          quantity: Math.max(1, Math.min(12, Math.floor(input.spawnGroup?.quantity ?? 2))),
+          role: input.spawnGroup?.role ?? "FIGHTER",
+          sidc:
+            input.spawnGroup?.sidc?.trim() || "130601000011010000000000000000",
+          max_fuel: Math.max(2000, Math.floor(input.spawnGroup?.max_fuel ?? 15000)),
+          fuel_burn_rate: Math.max(1, Math.floor(input.spawnGroup?.fuel_burn_rate ?? 12)),
+          speed: Math.max(0.2, Math.min(6, input.spawnGroup?.speed ?? 1.5)),
+          aoe_radius:
+            typeof input.spawnGroup?.aoe_radius === "number"
+              ? Math.max(1, input.spawnGroup.aoe_radius)
+              : 80,
+          sensor_range_km:
+            typeof input.spawnGroup?.sensor_range_km === "number"
+              ? Math.max(10, input.spawnGroup.sensor_range_km)
+              : 180,
+          engagement_range_km:
+            typeof input.spawnGroup?.engagement_range_km === "number"
+              ? Math.max(5, input.spawnGroup.engagement_range_km)
+              : 45,
+          combat_rating:
+            typeof input.spawnGroup?.combat_rating === "number"
+              ? Math.max(1, Math.min(100, Math.floor(input.spawnGroup.combat_rating)))
+              : 60,
+          signature:
+            typeof input.spawnGroup?.signature === "number"
+              ? Math.max(1, Math.min(100, Math.floor(input.spawnGroup.signature)))
+              : 45,
+          route: Array.isArray(input.spawnGroup?.route)
+            ? input.spawnGroup.route
+                .filter(
+                  (point) =>
+                    typeof point.lat === "number" &&
+                    Number.isFinite(point.lat) &&
+                    typeof point.lng === "number" &&
+                    Number.isFinite(point.lng)
+                )
+                .slice(0, 5)
+            : undefined,
+        };
+
+        const hostileGroups = next.hostileGroups.some((group) => group.id === spawnGroup.id)
+          ? next.hostileGroups.map((group) =>
+              group.id === spawnGroup.id ? { ...group, ...spawnGroup } : group
+            )
+          : [...next.hostileGroups, spawnGroup];
+        trigger.action_payload = {
+          group_id: spawnGroup.id,
+          home_base: spawnGroup.home_base,
+          quantity: spawnGroup.quantity,
+          role: spawnGroup.role,
+        };
+
+        if (executeNow) {
+          const withGroup = { ...next, hostileGroups };
+          const hostileUnits = spawnHostileUnitsForGroup(withGroup, spawnGroup.id);
+          next = {
+            ...withGroup,
+            hostileUnits,
+            injects: [intelLog, ...withGroup.injects].slice(0, MAX_INJECT_LOGS),
+          };
+        } else {
+          next = {
+            ...next,
+            hostileGroups,
+            events: [
+              ...next.events,
+              {
+                id: createEntityId("event"),
+                tick,
+                note: eventNote,
+                injects: {},
+                actions: [
+                  {
+                    type: "SPAWN_HOSTILE_GROUP",
+                    group_id: spawnGroup.id,
+                  } as EventAction,
+                ],
+              },
+            ].sort((a, b) => a.tick - b.tick),
+          };
+        }
       } else if (input.injectKind === "INFO_UPDATE") {
         if (executeNow) {
           next = {
@@ -1286,10 +1615,16 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         const next = { ...current, status };
         const nextMap = { ...prev, [triggerId]: next };
         persistResponses(nextMap);
+        void sendBroadcast("grading_complete", {
+          triggerId,
+          status: next.status,
+          grade: next.grade,
+          injectProposal: next.injectProposal,
+        });
         return nextMap;
       });
     },
-    [persistResponses]
+    [persistResponses, sendBroadcast]
   );
 
   const gradeInjectResponse = useCallback(
@@ -1307,6 +1642,12 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       }
       gradingInFlightRef.current.add(triggerId);
       try {
+        const evalContext = buildEvalContext(
+          stateRef.current,
+          triggerId,
+          payload.responseType,
+          payload.content
+        );
         const res = await fetch("/api/inject/evaluate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1315,6 +1656,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
             ...payload,
             scenarioTitle: stateRef.current.scenarioTitle,
             tick: stateRef.current.tick,
+            evalContext,
           }),
         });
 

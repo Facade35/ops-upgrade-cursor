@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, FileText, Target } from "lucide-react";
 
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
@@ -30,6 +31,14 @@ export function AdminIntelTab() {
     createAdminInject,
   } = useRemoteGameState();
   const triggers = state.injectTriggers ?? [];
+  const [activeInjectIndex, setActiveInjectIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveInjectIndex((prev) => {
+      if (triggers.length === 0) return 0;
+      return Math.min(prev, triggers.length - 1);
+    });
+  }, [triggers.length]);
 
   if (!state.loadedFileName) {
     return (
@@ -55,64 +64,88 @@ export function AdminIntelTab() {
     );
   }
 
+  const i = activeInjectIndex;
+  const t = triggers[i];
+  const key = triggerKey(t);
+  const response = injectResponses[key];
+  const requiredResponse = t.required_response;
+  const requiresMfr = requiredResponse === "MFR";
+  const requiresCoa = requiredResponse === "COA";
+  const requiresResponse = requiresMfr || requiresCoa;
+  const ticksRemaining =
+    t.deadline_tick != null ? t.deadline_tick - state.tick : null;
+  const overdue = ticksRemaining !== null && ticksRemaining <= 0;
+  const released = t.tick <= state.tick;
+
+  const requestResubmission = () =>
+    setInjectResponseStatus(key, "resubmit_required");
+  const acceptResponse = () => setInjectResponseStatus(key, "approved");
+  const approveProposal = async () => {
+    const proposal = response?.injectProposal;
+    if (!proposal) return;
+    await createAdminInject({
+      injectKind: proposal.inject_kind ?? "INFO_UPDATE",
+      title: proposal.title ?? "Follow-up Inject",
+      content: proposal.content,
+      tick: proposal.tick ?? state.tick + 1,
+      type: proposal.type ?? "OPS",
+      priority: proposal.priority ?? "MEDIUM",
+      requiredResponse: proposal.required_response ?? "NONE",
+      deadlineTick: proposal.deadline_tick,
+      lat: proposal.lat,
+      lng: proposal.lng,
+      mapVisible: proposal.map_visible ?? true,
+      sidc: proposal.sidc,
+      executeNow: false,
+      spawnGroup: proposal.spawn_group,
+    });
+    setInjectResponseStatus(key, "approved");
+  };
+
+  const priorityCls = t.priority
+    ? (PRIORITY_CLASSES[t.priority] ?? "bg-zinc-600 text-zinc-200")
+    : null;
+  const typeCls = t.type
+    ? (TYPE_CLASSES[t.type] ?? "bg-zinc-700/70 text-zinc-200")
+    : null;
+
   return (
     <div className="space-y-4">
-      {triggers.map((t, i) => {
-        const key = triggerKey(t);
-        const response = injectResponses[key];
-        const requiredResponse = t.required_response;
-        const requiresMfr = requiredResponse === "MFR";
-        const requiresCoa = requiredResponse === "COA";
-        const requiresResponse = requiresMfr || requiresCoa;
-        const ticksRemaining =
-          t.deadline_tick != null ? t.deadline_tick - state.tick : null;
-        const overdue = ticksRemaining !== null && ticksRemaining <= 0;
-        const released = t.tick <= state.tick;
-
-        const requestResubmission = () =>
-          setInjectResponseStatus(key, "resubmit_required");
-        const acceptResponse = () => setInjectResponseStatus(key, "graded");
-        const approveProposal = async () => {
-          const proposal = response?.injectProposal;
-          if (!proposal) return;
-          await createAdminInject({
-            injectKind: "INFO_UPDATE",
-            title: proposal.title ?? "Follow-up Inject",
-            content: proposal.content,
-            tick: proposal.tick ?? state.tick + 1,
-            type: proposal.type ?? "OPS",
-            priority: proposal.priority ?? "MEDIUM",
-            requiredResponse: proposal.required_response ?? "NONE",
-            deadlineTick: proposal.deadline_tick,
-            lat: proposal.lat,
-            lng: proposal.lng,
-            mapVisible: proposal.map_visible ?? true,
-            sidc: proposal.sidc,
-            executeNow: false,
-          });
-          setInjectResponseStatus(key, "graded");
-        };
-
-        const priorityCls = t.priority
-          ? (PRIORITY_CLASSES[t.priority] ?? "bg-zinc-600 text-zinc-200")
-          : null;
-        const typeCls = t.type
-          ? (TYPE_CLASSES[t.type] ?? "bg-zinc-700/70 text-zinc-200")
-          : null;
-
-        return (
-          <div
-            key={`${key}-${i}`}
-            className={`overflow-hidden rounded-xl border bg-card transition-all ${
-              response
-                ? "border-amber-600/40"
-                : overdue && !response
-                  ? "border-red-500/70"
-                  : released
-                    ? "border-zinc-700"
-                    : "border-zinc-800 opacity-60"
-            }`}
-          >
+      <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setActiveInjectIndex((prev) => Math.max(prev - 1, 0))}
+          disabled={activeInjectIndex === 0}
+        >
+          Previous
+        </Button>
+        <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+          Inject {activeInjectIndex + 1} of {triggers.length}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setActiveInjectIndex((prev) => Math.min(prev + 1, triggers.length - 1))
+          }
+          disabled={activeInjectIndex === triggers.length - 1}
+        >
+          Next
+        </Button>
+      </div>
+      <div
+        key={key}
+        className={`overflow-hidden rounded-xl border bg-card transition-all ${
+          response
+            ? "border-amber-600/40"
+            : overdue && !response
+              ? "border-red-500/70"
+              : released
+                ? "border-zinc-700"
+                : "border-zinc-800 opacity-60"
+        }`}
+      >
             {/* ── Header ──────────────────────────────────────────────── */}
             <div className="flex items-start justify-between gap-4 border-b border-zinc-800 p-5">
               <div className="min-w-0 flex-1">
@@ -130,21 +163,23 @@ export function AdminIntelTab() {
                       {t.priority}
                     </Badge>
                   )}
-                  <select
-                    className="ml-2 rounded border border-border bg-background px-2 py-1 text-[10px] uppercase text-zinc-200"
-                    value={t.strictness ?? "BALANCED"}
-                    onChange={(e) =>
-                      setTriggerStrictness(
-                        t.id ?? key,
-                        e.target.value as GradingStrictness
-                      )
-                    }
-                  >
-                    <option value="COACHING">Coaching</option>
-                    <option value="BALANCED">Balanced</option>
-                    <option value="MISSION_READY">Mission-Ready</option>
-                    <option value="ZERO_TOLERANCE">Zero-Tolerance</option>
-                  </select>
+                  {requiresResponse && (
+                    <select
+                      className="ml-2 rounded border border-border bg-background px-2 py-1 text-[10px] uppercase text-zinc-200"
+                      value={t.strictness ?? "BALANCED"}
+                      onChange={(e) =>
+                        setTriggerStrictness(
+                          t.id ?? key,
+                          e.target.value as GradingStrictness
+                        )
+                      }
+                    >
+                      <option value="COACHING">Coaching</option>
+                      <option value="BALANCED">Balanced</option>
+                      <option value="MISSION_READY">Mission-Ready</option>
+                      <option value="ZERO_TOLERANCE">Zero-Tolerance</option>
+                    </select>
+                  )}
                   {!released && (
                     <Badge variant="outline" className="font-mono text-[10px] text-zinc-500">
                       NOT YET RELEASED
@@ -227,6 +262,8 @@ export function AdminIntelTab() {
                     <span className="text-sm font-semibold text-amber-300">
                       {response.status === "pending"
                         ? "Response Pending AI Grading"
+                        : response.status === "approved"
+                          ? "APPROVED"
                         : response.status === "resubmit_required"
                           ? "Resubmission Required"
                           : response.status === "error"
@@ -261,6 +298,18 @@ export function AdminIntelTab() {
                           ))}
                         </ul>
                       ) : null}
+                      {response.grade.recommendations?.length ? (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                            Recommended Actions
+                          </p>
+                          <ul className="list-disc pl-5 text-sm text-emerald-100">
+                            {response.grade.recommendations.slice(0, 4).map((r, idx) => (
+                              <li key={idx}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
                   )}
 
@@ -277,22 +326,33 @@ export function AdminIntelTab() {
                           {response.injectProposal.content}
                         </p>
                       )}
+                      <p className="text-xs text-blue-200/90">
+                        Tick {response.injectProposal.tick ?? "auto"} ·{" "}
+                        {response.injectProposal.type ?? "OPS"} ·{" "}
+                        {response.injectProposal.priority ?? "MEDIUM"} ·{" "}
+                        Resp {response.injectProposal.required_response ?? "NONE"}
+                        {response.injectProposal.deadline_tick != null
+                          ? ` · DL ${response.injectProposal.deadline_tick}`
+                          : ""}
+                      </p>
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={acceptResponse}>
-                      Accept
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={requestResubmission}>
-                      Request Resubmission
-                    </Button>
-                    {response.injectProposal && (
-                      <Button size="sm" onClick={() => void approveProposal()}>
-                        Approve Proposal
+                  {response.status !== "approved" && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={acceptResponse}>
+                        Accept
                       </Button>
-                    )}
-                  </div>
+                      <Button size="sm" variant="secondary" onClick={requestResubmission}>
+                        Request Resubmission
+                      </Button>
+                      {response.injectProposal && (
+                        <Button size="sm" onClick={() => void approveProposal()}>
+                          Approve Proposal
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
                   {response.error && (
                     <p className="text-xs text-red-400">Error: {response.error}</p>
@@ -307,9 +367,7 @@ export function AdminIntelTab() {
                 <p className="text-sm text-zinc-600">No response required.</p>
               )}
             </div>
-          </div>
-        );
-      })}
+      </div>
     </div>
   );
 }

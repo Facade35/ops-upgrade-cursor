@@ -2,6 +2,8 @@
 
 import { Pause, Play } from "lucide-react";
 
+import { getSimulationTimeDisplay } from "@/lib/simulation-time";
+import { formatTickRateForDisplay } from "@/lib/simulation-tick-rate";
 import { useGameState } from "@/hooks/use-game-state";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -17,18 +19,30 @@ export function ControlPanel() {
       <div className="space-y-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
         <div className="flex items-center justify-between text-xs">
           <span className="text-zinc-500">Tick-rate</span>
-          <span className="font-medium text-white">{state.tickRate}x / sec</span>
+          <span className="font-medium text-white">
+            {formatTickRateForDisplay(state.tickRate)} ticks/sec
+          </span>
         </div>
         <Slider
-          min={1}
+          min={0.01}
           max={10}
-          step={1}
+          step={0.01}
           value={[state.tickRate]}
           onValueChange={(values) => setTickRate(values[0] ?? 1)}
         />
         <div className="flex items-center justify-between text-xs">
           <span className="text-zinc-500">Current Tick</span>
           <span className="font-medium text-white">{state.tick}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-zinc-500">Time (UTC)</span>
+          <span className="font-mono font-medium text-white">
+            {getSimulationTimeDisplay(
+              state.simulationStartTimeIso,
+              state.tick,
+              state.hoursPerTick
+            )}
+          </span>
         </div>
         <div className="flex gap-2 mt-2">
           <Button

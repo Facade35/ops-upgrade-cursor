@@ -86,6 +86,11 @@ export function InjectTriggerCard({
           label: "⚠ Resubmit Required",
           className: "text-red-400",
         };
+      case "approved":
+        return {
+          label: "APPROVED",
+          className: "text-emerald-300",
+        };
       case "error":
         return {
           label: "✖ Grading Error",

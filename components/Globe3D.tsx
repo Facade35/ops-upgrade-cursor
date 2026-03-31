@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useGameState } from "@/hooks/use-game-state";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
+import { isExplicitAirSidc } from "@/lib/sidc-symbol-set";
 
 const Globe = dynamic(() => import("react-globe.gl"), {
   ssr: false,
@@ -113,6 +114,16 @@ function resolveUnitSidc(marker: any, fallbackSidc: string): string {
   return resolveRenderableSidc(rawSidc, fallbackSidc);
 }
 
+function resolveBlueUnitMarkerSidc(marker: any): string {
+  if (isExplicitAirSidc(marker?.sidc)) return resolveUnitSidc(marker, AIR_ROLE_SIDCS.STRIKE);
+  return resolveRenderableSidc(marker?.sidc, "SFGPE---------");
+}
+
+function resolveHostileUnitMarkerSidc(marker: any): string {
+  if (isExplicitAirSidc(marker?.sidc)) return resolveUnitSidc(marker, "SHAPMF----------");
+  return resolveRenderableSidc(marker?.sidc, "SHGPE---------");
+}
+
 type AoeMeshDatum = {
   id: string;
   lat: number;
@@ -140,6 +151,9 @@ export default function Globe3D() {
   );
   const hostileAirborneUnits = state.hostileUnits.filter(
     (unit) => unit.status === "AIRBORNE"
+  );
+  const hostileSurfaceUnits = state.hostileUnits.filter(
+    (unit) => unit.status === "SURFACE"
   );
   const activeNoFlyZones = state.noFlyZones.filter((zone) => zone.active);
   const assetsByBaseId = useMemo(() => {
@@ -172,6 +186,12 @@ export default function Globe3D() {
     })),
     ...(isAdminView
       ? hostileAirborneUnits.map((unit) => ({
+          ...unit,
+          markerType: "HOSTILE_UNIT" as const,
+        }))
+      : []),
+    ...(isAdminView
+      ? hostileSurfaceUnits.map((unit) => ({
           ...unit,
           markerType: "HOSTILE_UNIT" as const,
         }))
@@ -314,6 +334,9 @@ export default function Globe3D() {
 
     const nextData = airborneAoe.map((unit) => {
       const id = String(unit.id);
+      const aoeAltitude = isExplicitAirSidc(unit.sidc)
+        ? AIRBORNE_OVERLAY_ALTITUDE
+        : 0;
       const existing = aoeDatumByIdRef.current.get(id) ?? {
         id,
         lat: unit.lat,
@@ -322,7 +345,7 @@ export default function Globe3D() {
         kind: "AOE" as const,
         role: unit.role,
         selected: selectedUnitId === unit.id,
-        altitude: AIRBORNE_OVERLAY_ALTITUDE,
+        altitude: aoeAltitude,
       };
 
       existing.lat = unit.lat;
@@ -331,7 +354,7 @@ export default function Globe3D() {
       existing.kind = "AOE";
       existing.role = unit.role;
       existing.selected = selectedUnitId === unit.id;
-      existing.altitude = AIRBORNE_OVERLAY_ALTITUDE;
+      existing.altitude = aoeAltitude;
 
       nextById.set(id, existing);
       return existing;
@@ -401,8 +424,12 @@ export default function Globe3D() {
               htmlLat="lat"
               htmlLng="lng"
               htmlAltitude={(d: any) => {
-                if (d.markerType === "UNIT" || d.markerType === "HOSTILE_UNIT") return AIRBORNE_OVERLAY_ALTITUDE;
                 if (d.markerType === "POINT") return 0.001;
+                if (d.markerType === "UNIT" || d.markerType === "HOSTILE_UNIT") {
+                  if (!isExplicitAirSidc(d.sidc)) return 0;
+                  if (d.status === "SURFACE") return 0;
+                  return AIRBORNE_OVERLAY_ALTITUDE;
+                }
                 return 0;
               }}
               htmlElement={(d: any) => {
@@ -475,7 +502,7 @@ export default function Globe3D() {
                 }
                 if (d.markerType === "UNIT") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(resolveUnitSidc(d, AIR_ROLE_SIDCS.STRIKE), {
+                  const symbol = new ms.Symbol(resolveBlueUnitMarkerSidc(d), {
                     size: 18,
                   });
                   icon.innerHTML = symbol.asSVG();
@@ -510,7 +537,7 @@ export default function Globe3D() {
                 }
                 if (d.markerType === "HOSTILE_UNIT") {
                   const icon = document.createElement("div");
-                  const symbol = new ms.Symbol(resolveUnitSidc(d, "SHAPMF----------"), {
+                  const symbol = new ms.Symbol(resolveHostileUnitMarkerSidc(d), {
                     size: 18,
                   });
                   icon.innerHTML = symbol.asSVG();

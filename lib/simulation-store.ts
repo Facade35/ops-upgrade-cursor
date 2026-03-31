@@ -7,13 +7,14 @@ import type {
   ResourceMap,
   SpawnedUnit,
 } from "@/types/game";
+import { normalizeScenarioStartTime } from "@/lib/simulation-time";
+import { clampSimulationTickRate } from "@/lib/simulation-tick-rate";
 import {
   applyInitialAirborne,
-  applyFuelTick,
-  applyMovementTick,
   distanceKm,
   estimateFuelRequired,
   isWithinAoe,
+  resolveHoursPerTick,
   spawnUnitsFromAssets,
 } from "@/lib/simulation-units";
 
@@ -29,6 +30,8 @@ export interface SimulationState {
   injectTriggers: InjectTrigger[];
   tick: number;
   tickRate: number;
+  hoursPerTick: number;
+  simulationStartTimeIso: string | null;
   paused: boolean;
   status: "RUNNING" | "STOPPED" | "UNINITIALIZED";
   loadedFileName: string | null;
@@ -81,6 +84,8 @@ const initialState: SimulationState = {
   injectTriggers: [],
   tick: 0,
   tickRate: 1,
+  hoursPerTick: 1,
+  simulationStartTimeIso: null,
   paused: false,
   status: "UNINITIALIZED",
   loadedFileName: null,
@@ -97,11 +102,13 @@ const listeners = new Set<(s: SimulationState) => void>();
 
 function applyActiveRefuels(
   units: SpawnedUnit[],
-  activeRefuels: SimulationState["activeRefuels"]
+  activeRefuels: SimulationState["activeRefuels"],
+  hoursPerTick: number
 ): { units: SpawnedUnit[]; activeRefuels: SimulationState["activeRefuels"] } {
   if (activeRefuels.length === 0) {
     return { units, activeRefuels };
   }
+  const h = resolveHoursPerTick(hoursPerTick);
 
   const nextUnits = units.map((unit) => ({ ...unit }));
   const unitById = new Map(nextUnits.map((unit) => [unit.id, unit]));
@@ -119,11 +126,11 @@ function applyActiveRefuels(
       continue;
     }
 
-    const rate = Math.max(0, tanker.transfer_rate ?? 0);
+    const ratePerHour = Math.max(0, tanker.transfer_rate ?? 0);
     const receiverNeed = Math.max(0, receiver.max_fuel - receiver.current_fuel);
-    if (rate <= 0 || receiverNeed <= 0 || tanker.current_fuel <= 0) continue;
+    if (ratePerHour <= 0 || receiverNeed <= 0 || tanker.current_fuel <= 0) continue;
 
-    const transferAmount = Math.min(rate, receiverNeed, tanker.current_fuel);
+    const transferAmount = Math.min(ratePerHour * h, receiverNeed, tanker.current_fuel);
     if (transferAmount <= 0) continue;
 
     tanker.current_fuel = Math.max(0, tanker.current_fuel - transferAmount);
@@ -217,9 +224,11 @@ export function loadDefinition(
     scenarioTitle: definition.scenarioTitle ?? null,
     deploymentRequests: [],
     activeRefuels: [],
+    hoursPerTick: resolveHoursPerTick(definition.hours_per_tick),
+    simulationStartTimeIso: normalizeScenarioStartTime(definition.scenario_start_time),
   };
-  if (typeof initialTickRate === "number" && initialTickRate >= 1) {
-    next.tickRate = Math.min(10, Math.max(1, Math.round(initialTickRate)));
+  if (typeof initialTickRate === "number" && initialTickRate > 0) {
+    next.tickRate = clampSimulationTickRate(initialTickRate);
   }
   setState(next);
 }
@@ -240,7 +249,7 @@ function updateTensionKey(resources: ResourceMap, clamped: number): ResourceMap 
 }
 
 export function setTickRate(tickRate: number) {
-  const next = { ...state, tickRate };
+  const next = { ...state, tickRate: clampSimulationTickRate(tickRate) };
   setState(next);
 }
 
@@ -267,6 +276,8 @@ export function stopSimulation() {
   setState({
     ...initialState,
     tickRate: state.tickRate,
+    hoursPerTick: state.hoursPerTick,
+    simulationStartTimeIso: null,
     paused: true,
     status: "UNINITIALIZED",
     globalTension: 20,
