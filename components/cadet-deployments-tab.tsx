@@ -82,11 +82,11 @@ export function CadetDeploymentsTab() {
           },
         ]
       : [];
-  const pendingRoutes: DeploymentMapRoute[] = pendingSorties
-    .map((request) => {
-      const origin = resolveOrigin(request.unit_id);
-      if (!origin) return null;
-      return {
+  const pendingRoutes: DeploymentMapRoute[] = pendingSorties.flatMap((request) => {
+    const origin = resolveOrigin(request.unit_id);
+    if (!origin) return [];
+    return [
+      {
         id: request.id,
         originLat: origin.lat,
         originLng: origin.lng,
@@ -96,9 +96,9 @@ export function CadetDeploymentsTab() {
         missionType: request.mission_type,
         departureTick: request.departure_tick,
         status: request.status,
-      };
-    })
-    .filter((route): route is DeploymentMapRoute => route !== null);
+      },
+    ];
+  });
   const mapPoints: DeploymentMapPoint[] = [
     ...state.bases.map((base) => ({
       id: `base-${base.id}`,
