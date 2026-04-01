@@ -3,7 +3,7 @@
 import { type FormEvent, useMemo, useState } from "react";
 import { Inbox, Plane, Send } from "lucide-react";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
-import { estimateFuelRequired } from "@/lib/simulation-units";
+import { estimateFuelRequired, isPlayerTaskableUnit } from "@/lib/simulation-units";
 import type { DeploymentMissionType } from "@/types/game";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,9 +24,10 @@ export function CadetDeploymentsTab() {
         (unit) =>
           unit.status === "GROUNDED" &&
           !!unit.current_base &&
-          unit.deployment_status !== "PENDING_APPROVAL"
+          unit.deployment_status !== "PENDING_APPROVAL" &&
+          isPlayerTaskableUnit(unit, state.assets)
       ),
-    [state.units]
+    [state.assets, state.units]
   );
 
   const [unitId, setUnitId] = useState<string>("");

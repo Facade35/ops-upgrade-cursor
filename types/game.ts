@@ -141,6 +141,11 @@ export interface Asset {
   sensor_range_km?: number;
   detection_strength?: number;
   combat_rating?: number;
+  /**
+   * When false, cadets cannot deploy or direct this unit (e.g. neutral civilian traffic).
+   * Omitted or true means normal playable assets.
+   */
+  player_taskable?: boolean;
 }
 
 export type UnitStatus =
@@ -191,6 +196,8 @@ export interface SpawnedUnit {
   combat_rating?: number;
   route?: Array<{ lat: number; lng: number }>;
   route_index?: number;
+  /** Copied from asset; see Asset.player_taskable. */
+  player_taskable?: boolean;
 }
 
 export interface DeploymentRequest {

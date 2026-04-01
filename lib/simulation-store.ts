@@ -13,6 +13,7 @@ import {
   applyInitialAirborne,
   distanceKm,
   estimateFuelRequired,
+  isPlayerTaskableUnit,
   isWithinAoe,
   resolveHoursPerTick,
   spawnUnitsFromAssets,
@@ -358,6 +359,7 @@ export function createDeploymentRequest(
   const departureTick = Math.max(1, Math.floor(input.departureTick));
   const unit = state.units.find((u) => u.id === input.unitId);
   if (!unit || unit.status !== "GROUNDED") return null;
+  if (!isPlayerTaskableUnit(unit, state.assets)) return null;
 
   const alreadyPending = state.deploymentRequests.some(
     (req) => req.unit_id === input.unitId && req.status === "PENDING_APPROVAL"

@@ -10,6 +10,14 @@ export function resolveHoursPerTick(value: number | undefined): number {
   return Math.min(168, Math.max(0.01, value));
 }
 
+/** Cadet deploy / refuel / transport-mission actions are allowed only when player-taskable. */
+export function isPlayerTaskableUnit(unit: SpawnedUnit, assets: Asset[]): boolean {
+  const asset = assets.find((a) => a.id === unit.asset_id);
+  if (asset?.player_taskable === false) return false;
+  if (unit.player_taskable === false) return false;
+  return true;
+}
+
 export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUnit[] {
   const baseById = new Map(bases.map((base) => [base.id, base]));
   const units: SpawnedUnit[] = [];
@@ -49,6 +57,7 @@ export function spawnUnitsFromAssets(assets: Asset[], bases: Base[]): SpawnedUni
         sensor_range_km: asset.sensor_range_km,
         detection_strength: asset.detection_strength,
         combat_rating: asset.combat_rating,
+        player_taskable: asset.player_taskable,
       });
     }
   }

@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 
 import type { SpawnedUnit } from "@/types/game";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
-import { isWithinAoe } from "@/lib/simulation-units";
+import { isPlayerTaskableUnit, isWithinAoe } from "@/lib/simulation-units";
 import { Button } from "@/components/ui/button";
 
 interface AssetDropdownProps {
@@ -25,6 +25,7 @@ export function AssetDropdown({
   const isSelected = selectedUnitId === unit.id;
 
   const canInitiateRefuel = useMemo(() => {
+    if (!isPlayerTaskableUnit(unit, state.assets)) return false;
     if (unit.status !== "AIRBORNE") return false;
     return state.units.some((candidate) => {
       if (
@@ -67,7 +68,7 @@ export function AssetDropdown({
       if (completed.has(triggerKey)) return false;
       return isWithinAoe(unit.lat, unit.lng, trigger.lat, trigger.lng, aoeRadius);
     });
-  }, [state.injectTriggers, state.tick, unit]);
+  }, [state.assets, state.injectTriggers, state.tick, unit]);
 
   const handleRefuel = async () => {
     if (isSubmittingRefuel) return;

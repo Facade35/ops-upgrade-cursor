@@ -124,6 +124,43 @@ function resolveHostileUnitMarkerSidc(marker: any): string {
   return resolveRenderableSidc(marker?.sidc, "SHGPE---------");
 }
 
+/** HTML/CSS2D markers sit above the canvas and capture wheel; forward so OrbitControls can zoom. */
+function attachWheelForwardToGlobeCanvas(
+  el: HTMLElement,
+  getGlobe: () => { controls?: () => { domElement: HTMLElement } } | undefined
+) {
+  el.addEventListener(
+    "wheel",
+    (e) => {
+      const g = getGlobe();
+      const dom = g?.controls?.()?.domElement;
+      if (!dom) return;
+      dom.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          deltaZ: e.deltaZ,
+          deltaMode: e.deltaMode,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        })
+      );
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    { passive: false }
+  );
+}
+
 type AoeMeshDatum = {
   id: string;
   lat: number;
@@ -472,6 +509,7 @@ export default function Globe3D() {
 
                   container.appendChild(icon);
                   container.appendChild(tooltip);
+                  attachWheelForwardToGlobeCanvas(container, () => globeRef.current);
                   return container;
                 }
                 if (d.markerType === "HOSTILE_BASE") {
@@ -498,6 +536,7 @@ export default function Globe3D() {
 
                   container.appendChild(icon);
                   container.appendChild(tooltip);
+                  attachWheelForwardToGlobeCanvas(container, () => globeRef.current);
                   return container;
                 }
                 if (d.markerType === "UNIT") {
@@ -533,6 +572,7 @@ export default function Globe3D() {
 
                   container.appendChild(icon);
                   container.appendChild(tooltip);
+                  attachWheelForwardToGlobeCanvas(container, () => globeRef.current);
                   return container;
                 }
                 if (d.markerType === "HOSTILE_UNIT") {
@@ -568,6 +608,7 @@ export default function Globe3D() {
 
                   container.appendChild(icon);
                   container.appendChild(tooltip);
+                  attachWheelForwardToGlobeCanvas(container, () => globeRef.current);
                   return container;
                 }
                 if (d.markerType === "TRACK") {
@@ -579,6 +620,7 @@ export default function Globe3D() {
                   el.style.backgroundColor = "rgba(255,59,48,0.2)";
                   el.style.boxShadow = "0 0 8px rgba(255,59,48,0.75)";
                   el.title = `${d.label ?? "Hostile Track"} · ${d.confidence ?? 0}%`;
+                  attachWheelForwardToGlobeCanvas(el, () => globeRef.current);
                   return el;
                 }
 
@@ -594,6 +636,7 @@ export default function Globe3D() {
                 el.style.backgroundColor = color;
                 el.style.boxShadow = `0 0 6px ${color}`;
                 el.title = [d.label, d.type].filter(Boolean).join(" · ") || "Point";
+                attachWheelForwardToGlobeCanvas(el, () => globeRef.current);
                 return el;
               }}
           />

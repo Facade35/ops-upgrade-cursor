@@ -9,7 +9,7 @@
   },
   "resources": {
     "Tension": 45,
-    "JP8 Fuel (gal)": 1250000,
+    "Fuel (lbs)": 1250000,
     "MREs": 22000,
     "Civilian Boats Safe": 6
   },
@@ -91,7 +91,8 @@
       "aoe_radius": 5,
       "speed": 0.18,
       "capacity": 20,
-      "side": "BLUE"
+      "side": "BLUE",
+      "player_taskable": false
     }
   ],
   "initial_airborne": [

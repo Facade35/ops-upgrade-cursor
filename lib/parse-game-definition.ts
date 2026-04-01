@@ -185,6 +185,9 @@ export function parseDefinition(raw: unknown): GameDefinition {
     if (typeof combatRating === "number") {
       parsedAsset.combat_rating = combatRating;
     }
+    if (asset.player_taskable === false) {
+      parsedAsset.player_taskable = false;
+    }
     assets.push(parsedAsset);
   });
 

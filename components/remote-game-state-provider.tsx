@@ -33,6 +33,7 @@ import {
   applyInitialAirborne,
   distanceKm,
   estimateFuelRequired,
+  isPlayerTaskableUnit,
   isWithinAoe,
   resolveHoursPerTick,
   spawnUnitsFromAssets,
@@ -347,7 +348,8 @@ function buildRelevantAssets(
   responseType: "MFR" | "COA",
   content: string
 ): EvalContext["relevantAssets"] {
-  if (state.assets.length === 0) return [];
+  const taskableAssets = state.assets.filter((a) => a.player_taskable !== false);
+  if (taskableAssets.length === 0) return [];
   const roleWeights: Record<string, number> = {
     FIGHTER: 1,
     ISR: 1,
@@ -370,7 +372,7 @@ function buildRelevantAssets(
   const keywordCorpus = normalizeForMatch(
     `${content} ${trigger?.title ?? ""} ${trigger?.content ?? ""}`
   );
-  const scored = state.assets.map((asset) => {
+  const scored = taskableAssets.map((asset) => {
     const units = state.units.filter((unit) => unit.asset_id === asset.id);
     const airborne = units.filter((unit) => unit.status === "AIRBORNE").length;
     const grounded = units.filter((unit) => unit.status === "GROUNDED").length;
@@ -1740,6 +1742,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       const departureTick = Math.max(1, Math.floor(request.departureTick));
       const unit = current.units.find((u) => u.id === request.unitId);
       if (!unit || unit.status !== "GROUNDED") return false;
+      if (!isPlayerTaskableUnit(unit, current.assets)) return false;
 
       const alreadyPending = current.deploymentRequests.some(
         (req) => req.unit_id === request.unitId && req.status === "PENDING_APPROVAL"
@@ -1842,6 +1845,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     async (receiverId: string) => {
       const receiver = stateRef.current.units.find((unit) => unit.id === receiverId);
       if (!receiver || receiver.status !== "AIRBORNE") return false;
+      if (!isPlayerTaskableUnit(receiver, stateRef.current.assets)) return false;
 
       const candidateTankers = stateRef.current.units.filter((unit) => {
         if (
@@ -1903,6 +1907,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
 
       const { trigger, unitIndex } = result;
       const unit = stateRef.current.units[unitIndex];
+      if (!isPlayerTaskableUnit(unit, stateRef.current.assets)) return false;
       const triggerKey = buildInjectTriggerKey(trigger);
       const completedIds = Array.isArray(unit.completed_inject_ids)
         ? unit.completed_inject_ids
