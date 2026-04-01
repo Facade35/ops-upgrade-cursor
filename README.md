@@ -64,6 +64,7 @@
   - Session persistence via Supabase JSON state snapshots.
 - [X] **AI MFR and COA Examination**
   - Automated grading and recommendation engine.
+  - Admin receives AI-advised action suggestions for execution.
 
 ---
 
@@ -72,8 +73,7 @@
 - [ ] **Red Force AI**
   - Automated threat response layer.
   - Enemy interceptors spawn and execute interception vectors when Blue Force breaches threat boundaries.
-
-  - Admin receives AI-advised action suggestions for execution.
+  
 - [ ] **Doctrine Execution Expansion**
   - Extend interactive map doctrine so tanker-to-fighter fuel transfer and transport airdrop inject completion become richer, more automated mission interactions.
 - [ ] **Multigame System**
