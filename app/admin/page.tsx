@@ -20,7 +20,7 @@ function AdminContent() {
   useAdminTickEngine();
 
   const scenarioTitle = state.scenarioTitle ?? "Admin Control";
-  const pendingSorties = state.deploymentRequests.filter(
+  const pendingTaskingOrders = state.deploymentRequests.filter(
     (request) => request.status === "PENDING_APPROVAL"
   ).length;
   const upcomingInjects = state.injectTriggers
@@ -62,7 +62,7 @@ function AdminContent() {
               <TabsList>
                 <TabsTrigger value="command">Command Center</TabsTrigger>
                 <TabsTrigger value="intel">Intel Triggers</TabsTrigger>
-                <TabsTrigger value="deployments">Pending Sorties</TabsTrigger>
+                <TabsTrigger value="deployments">Tasking Orders</TabsTrigger>
                 <TabsTrigger value="injects">Inject Manager</TabsTrigger>
               </TabsList>
             </div>
@@ -75,11 +75,11 @@ function AdminContent() {
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                       <Plane className="size-4" />
-                      Pending Sorties
+                      Tasking Orders
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="text-3xl font-semibold">
-                    {pendingSorties}
+                    {pendingTaskingOrders}
                   </CardContent>
                 </Card>
                 <Card className="bg-card/50">

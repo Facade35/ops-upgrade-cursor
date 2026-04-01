@@ -2,12 +2,25 @@ import type { Asset, Base, GameDefinition, SpawnedUnit } from "@/types/game";
 
 /** Default simulated hours per tick when a scenario does not set `hours_per_tick`. */
 export const DEFAULT_HOURS_PER_TICK = 1;
+/** `speed: 1.0` means 1000 mph in scenario data. */
+export const MPH_PER_SPEED_RATING = 1000;
+/** `fuel_burn_rate: 10` means 10,000 lbs/hour in scenario data. */
+export const LBS_PER_HOUR_PER_FUEL_RATING = 1000;
+const KM_PER_MILE = 1.609344;
 
 export function resolveHoursPerTick(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_HOURS_PER_TICK;
   }
   return Math.min(168, Math.max(0.01, value));
+}
+
+export function speedRatingToKmPerHour(speedRating: number): number {
+  return Math.max(0, speedRating) * MPH_PER_SPEED_RATING * KM_PER_MILE;
+}
+
+export function fuelBurnRatingToLbsPerHour(fuelBurnRating: number): number {
+  return Math.max(0, fuelBurnRating) * LBS_PER_HOUR_PER_FUEL_RATING;
 }
 
 /** Cadet deploy / refuel / transport-mission actions are allowed only when player-taskable. */
@@ -113,7 +126,7 @@ export function applyFuelTick(
       return unit;
     }
     if (unit.status === "AIRBORNE") {
-      const burn = Math.max(0, unit.fuel_burn_rate) * h;
+      const burn = fuelBurnRatingToLbsPerHour(unit.fuel_burn_rate) * h;
       return {
         ...unit,
         current_fuel: Math.max(0, unit.current_fuel - burn),
@@ -170,8 +183,8 @@ export function estimateFuelRequired(
   targetLng: number
 ): number {
   const distance = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
-  const burn = Math.max(0, unit.fuel_burn_rate);
-  const speed = Math.max(0, unit.speed);
+  const burn = fuelBurnRatingToLbsPerHour(unit.fuel_burn_rate);
+  const speed = speedRatingToKmPerHour(unit.speed);
   if (speed > 0) {
     const hours = distance / speed;
     return Math.max(0, hours * burn);
@@ -188,6 +201,73 @@ export function isWithinAoe(
 ): boolean {
   if (!Number.isFinite(radiusKm) || radiusKm <= 0) return false;
   return distanceKm(sourceLat, sourceLng, targetLat, targetLng) <= radiusKm;
+}
+
+export function computeProximityRefuelLinks(
+  units: SpawnedUnit[]
+): Array<{ tankerId: string; receiverId: string }> {
+  const tankers = units.filter((unit) => {
+    const side = unit.side ?? "BLUE";
+    const radius = Math.max(0, unit.aoe_radius ?? 0);
+    return (
+      unit.status === "AIRBORNE" &&
+      unit.role === "TANKER" &&
+      side === "BLUE" &&
+      radius > 0 &&
+      (unit.transfer_rate ?? 0) > 0 &&
+      unit.current_fuel > 0
+    );
+  });
+
+  if (tankers.length === 0) return [];
+
+  const links: Array<{ tankerId: string; receiverId: string }> = [];
+
+  for (const receiver of units) {
+    const receiverSide = receiver.side ?? "BLUE";
+    if (
+      receiver.status !== "AIRBORNE" ||
+      receiver.role === "TANKER" ||
+      receiverSide !== "BLUE" ||
+      receiver.max_fuel <= 0
+    ) {
+      continue;
+    }
+
+    const candidateTankers = tankers.filter((tanker) => {
+      if (tanker.id === receiver.id) return false;
+      const radius = Math.max(0, tanker.aoe_radius ?? 0);
+      return isWithinAoe(
+        tanker.lat,
+        tanker.lng,
+        receiver.lat,
+        receiver.lng,
+        radius
+      );
+    });
+
+    if (candidateTankers.length === 0) continue;
+
+    const closestTanker = candidateTankers.reduce((closest, current) => {
+      const closestDistance = distanceKm(
+        closest.lat,
+        closest.lng,
+        receiver.lat,
+        receiver.lng
+      );
+      const currentDistance = distanceKm(
+        current.lat,
+        current.lng,
+        receiver.lat,
+        receiver.lng
+      );
+      return currentDistance < closestDistance ? current : closest;
+    });
+
+    links.push({ tankerId: closestTanker.id, receiverId: receiver.id });
+  }
+
+  return links;
 }
 
 export function applyMovementTick(
@@ -221,7 +301,7 @@ export function applyMovementTick(
     const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
     if (remaining <= 0) return unit;
 
-    const stepKm = Math.max(0, unit.speed) * h;
+    const stepKm = speedRatingToKmPerHour(unit.speed) * h;
     if (stepKm <= 0) return unit;
 
     if (stepKm >= remaining) {

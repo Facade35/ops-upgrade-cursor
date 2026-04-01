@@ -179,10 +179,29 @@ export default function Globe3D() {
   const { selectedUnitId } = useRemoteGameState();
   const [size, setSize] = useState({ width: 1200, height: 720 });
   const globeRef = useRef<any>(undefined);
+  const lastCenteredScenarioRef = useRef<string | null>(null);
   const aoeDatumByIdRef = useRef(new Map<string, AoeMeshDatum>());
   const pointsData = state.globePoints.filter(
     (point) => point.tick == null || point.tick <= state.tick
   );
+  const missionStartPoint = useMemo(() => {
+    const explicitStart = state.globePoints.find(
+      (point) =>
+        point.type === "START" &&
+        typeof point.lat === "number" &&
+        Number.isFinite(point.lat) &&
+        typeof point.lng === "number" &&
+        Number.isFinite(point.lng)
+    );
+    if (explicitStart) {
+      return { lat: explicitStart.lat, lng: explicitStart.lng };
+    }
+    const firstBase = state.bases[0];
+    if (firstBase) {
+      return { lat: firstBase.lat, lng: firstBase.lng };
+    }
+    return null;
+  }, [state.bases, state.globePoints]);
   const airborneUnits = state.units.filter(
     (unit) => unit.status !== "DESTROYED" && unit.status === "AIRBORNE"
   );
@@ -324,6 +343,7 @@ export default function Globe3D() {
     const worldRadius = toWorldRadius(datum.radiusKm);
     const height = getCylinderHeight();
     const color = datum.kind === "NFZ" ? zoneColor : roleColor(datum.role);
+    const isTankerAoe = datum.kind === "AOE" && datum.role === "TANKER";
     const group = new THREE.Group();
 
     const wall = new THREE.Mesh(
@@ -331,7 +351,7 @@ export default function Globe3D() {
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: datum.kind === "NFZ" ? 0.26 : datum.selected ? 0.35 : 0.3,
+        opacity: datum.kind === "NFZ" ? 0.26 : isTankerAoe ? 0.42 : datum.selected ? 0.35 : 0.3,
         side: THREE.FrontSide,
         depthWrite: false,
       })
@@ -343,7 +363,7 @@ export default function Globe3D() {
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: datum.kind === "NFZ" ? 0.16 : datum.selected ? 0.25 : 0.2,
+        opacity: datum.kind === "NFZ" ? 0.16 : isTankerAoe ? 0.3 : datum.selected ? 0.25 : 0.2,
         side: THREE.DoubleSide,
         depthWrite: false,
       })
@@ -352,7 +372,11 @@ export default function Globe3D() {
 
     const topBorder = new THREE.LineLoop(
       buildRingGeometry(worldRadius, 0),
-      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 })
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: isTankerAoe ? 1 : 0.95,
+      })
     );
     topBorder.name = "aoe-border";
 
@@ -432,6 +456,36 @@ export default function Globe3D() {
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
+  useEffect(() => {
+    if (!state.loadedFileName || !missionStartPoint) return;
+    if (lastCenteredScenarioRef.current === state.loadedFileName) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 12;
+
+    const panToStartPoint = () => {
+      if (cancelled) return;
+      const globe = globeRef.current;
+      if (globe && typeof globe.pointOfView === "function") {
+        globe.pointOfView(
+          { lat: missionStartPoint.lat, lng: missionStartPoint.lng, altitude: 1.8 },
+          1200
+        );
+        lastCenteredScenarioRef.current = state.loadedFileName;
+        return;
+      }
+      if (attempts >= maxAttempts) return;
+      attempts += 1;
+      window.setTimeout(panToStartPoint, 120);
+    };
+
+    panToStartPoint();
+    return () => {
+      cancelled = true;
+    };
+  }, [missionStartPoint, state.loadedFileName]);
 
   return (
     <Card className="h-full">

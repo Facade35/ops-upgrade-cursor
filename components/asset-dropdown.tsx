@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 
 import type { SpawnedUnit } from "@/types/game";
 import { useRemoteGameState } from "@/components/remote-game-state-provider";
-import { isPlayerTaskableUnit, isWithinAoe } from "@/lib/simulation-units";
+import { isWithinAoe } from "@/lib/simulation-units";
 import { Button } from "@/components/ui/button";
 
 interface AssetDropdownProps {
@@ -19,32 +19,9 @@ export function AssetDropdown({
   selectedUnitId,
   onSelectUnit,
 }: AssetDropdownProps) {
-  const { state, initiateRefuel, executeMission } = useRemoteGameState();
-  const [isSubmittingRefuel, setIsSubmittingRefuel] = useState(false);
+  const { state, executeMission } = useRemoteGameState();
   const [isSubmittingMission, setIsSubmittingMission] = useState(false);
   const isSelected = selectedUnitId === unit.id;
-
-  const canInitiateRefuel = useMemo(() => {
-    if (!isPlayerTaskableUnit(unit, state.assets)) return false;
-    if (unit.status !== "AIRBORNE") return false;
-    return state.units.some((candidate) => {
-      if (
-        candidate.id === unit.id ||
-        candidate.status !== "AIRBORNE" ||
-        candidate.role !== "TANKER"
-      ) {
-        return false;
-      }
-      const tankerRadius = Math.max(0, candidate.aoe_radius ?? 0);
-      return isWithinAoe(
-        candidate.lat,
-        candidate.lng,
-        unit.lat,
-        unit.lng,
-        tankerRadius
-      );
-    });
-  }, [state.units, unit]);
 
   const canExecuteMission = useMemo(() => {
     if (unit.status !== "AIRBORNE" || unit.role !== "TRANSPORT") return false;
@@ -69,16 +46,6 @@ export function AssetDropdown({
       return isWithinAoe(unit.lat, unit.lng, trigger.lat, trigger.lng, aoeRadius);
     });
   }, [state.assets, state.injectTriggers, state.tick, unit]);
-
-  const handleRefuel = async () => {
-    if (isSubmittingRefuel) return;
-    setIsSubmittingRefuel(true);
-    try {
-      await initiateRefuel(unit.id);
-    } finally {
-      setIsSubmittingRefuel(false);
-    }
-  };
 
   const handleMission = async () => {
     if (isSubmittingMission) return;
@@ -117,11 +84,15 @@ export function AssetDropdown({
           </div>
           <div className="flex justify-between gap-2">
             <dt>Burn rate</dt>
-            <dd className="text-zinc-300">{unit.fuel_burn_rate.toLocaleString()} / sim hr</dd>
+            <dd className="text-zinc-300">
+              {unit.fuel_burn_rate.toFixed(2)} ({(unit.fuel_burn_rate * 1000).toLocaleString()} lbs/hr)
+            </dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt>Speed</dt>
-            <dd className="text-zinc-300">{unit.speed.toFixed(1)} km/h</dd>
+            <dd className="text-zinc-300">
+              {unit.speed.toFixed(3)} ({Math.round(unit.speed * 1000).toLocaleString()} mph)
+            </dd>
           </div>
           {unit.role && (
             <div className="flex justify-between gap-2">
@@ -146,30 +117,17 @@ export function AssetDropdown({
             <dd className="font-mono text-zinc-500">{unit.id}</dd>
           </div>
         </dl>
-        {(canInitiateRefuel || canExecuteMission) && (
+        {canExecuteMission && (
           <div className="mt-3 flex flex-wrap gap-2">
-            {canInitiateRefuel && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleRefuel}
-                disabled={isSubmittingRefuel}
-              >
-                Initiate Refuel
-              </Button>
-            )}
-            {canExecuteMission && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleMission}
-                disabled={isSubmittingMission}
-              >
-                Execute Mission
-              </Button>
-            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleMission}
+              disabled={isSubmittingMission}
+            >
+              Execute Mission
+            </Button>
           </div>
         )}
       </div>

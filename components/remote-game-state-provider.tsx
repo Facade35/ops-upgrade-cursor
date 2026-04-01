@@ -38,7 +38,7 @@ import {
   resolveHoursPerTick,
   spawnUnitsFromAssets,
 } from "@/lib/simulation-units";
-import { normalizeScenarioStartTime } from "@/lib/simulation-time";
+import { normalizeScenarioStartTime, simulationTimeIsoToTick } from "@/lib/simulation-time";
 import { clampSimulationTickRate } from "@/lib/simulation-tick-rate";
 import { isExplicitAirSidc } from "@/lib/sidc-symbol-set";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -802,17 +802,27 @@ export interface RemoteGameStateContextType {
     status: InjectResponseRecord["status"]
   ) => void;
   submitDeploymentRequest: (request: {
-    unitId: string;
+    orderLabel?: string;
+    unitAssignments: Array<{
+      unitId: string;
+      missionType: DeploymentMissionType;
+    }>;
     targetLat: number;
     targetLng: number;
-    departureTick: number;
-    missionType: DeploymentMissionType;
+    patrolLatA?: number;
+    patrolLngA?: number;
+    patrolLatB?: number;
+    patrolLngB?: number;
+    returnBaseId: string;
+    patrolReturnTimeIso?: string;
+    sameSpeed: boolean;
+    departureTimeIso: string;
   }) => Promise<boolean>;
   decideDeploymentRequest: (
     requestId: string,
-    decision: "approve" | "deny"
+    decision: "approve" | "deny",
+    denialReason?: string
   ) => Promise<boolean>;
-  initiateRefuel: (unitId: string) => Promise<boolean>;
   executeMission: (unitId: string) => Promise<boolean>;
 }
 
@@ -1721,48 +1731,138 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
     [persistResponses, sendBroadcast]
   );
 
+  const isMissionAllowedForUnit = useCallback(
+    (
+      unit: GameState["units"][number],
+      missionType: DeploymentMissionType
+    ): boolean => {
+      if (missionType === "PATROL") return true;
+      const role = unit.role;
+      if (!role) return false;
+      if (role === "ISR") return missionType === "ISR";
+      if (role === "TRANSPORT") {
+        return missionType === "TRANSPORT" || missionType === "AIR_DROP";
+      }
+      if (role === "TANKER") return missionType === "SUPPORT";
+      if (role === "FIGHTER") return missionType === "STRIKE" || missionType === "ISR";
+      return false;
+    },
+    []
+  );
+
   const submitDeploymentRequest = useCallback(
     async (request: {
-      unitId: string;
+      orderLabel?: string;
+      unitAssignments: Array<{
+        unitId: string;
+        missionType: DeploymentMissionType;
+      }>;
       targetLat: number;
       targetLng: number;
-      departureTick: number;
-      missionType: DeploymentMissionType;
+      patrolLatA?: number;
+      patrolLngA?: number;
+      patrolLatB?: number;
+      patrolLngB?: number;
+      returnBaseId: string;
+      patrolReturnTimeIso?: string;
+      sameSpeed: boolean;
+      departureTimeIso: string;
     }) => {
       const current = stateRef.current;
       if (
-        !request.unitId ||
+        !Array.isArray(request.unitAssignments) ||
+        request.unitAssignments.length === 0 ||
         !Number.isFinite(request.targetLat) ||
         !Number.isFinite(request.targetLng) ||
-        !Number.isFinite(request.departureTick)
+        !request.departureTimeIso ||
+        !request.returnBaseId
       ) {
         return false;
       }
 
-      const departureTick = Math.max(1, Math.floor(request.departureTick));
-      const unit = current.units.find((u) => u.id === request.unitId);
-      if (!unit || unit.status !== "GROUNDED") return false;
-      if (!isPlayerTaskableUnit(unit, current.assets)) return false;
-
-      const alreadyPending = current.deploymentRequests.some(
-        (req) => req.unit_id === request.unitId && req.status === "PENDING_APPROVAL"
+      const departureTick = simulationTimeIsoToTick(
+        current.simulationStartTimeIso,
+        request.departureTimeIso,
+        current.hoursPerTick
       );
-      if (alreadyPending) return false;
+      if (departureTick == null || departureTick < current.tick) return false;
+      const selectedBase = current.bases.find((b) => b.id === request.returnBaseId);
+      if (!selectedBase) return false;
+      const selectedBaseLabel = selectedBase.label.toLowerCase();
+      const isCarrierLanding = selectedBaseLabel.includes("carrier") || selectedBaseLabel.includes("cvn");
+      const uniqueAssignments = Array.from(
+        new Map(request.unitAssignments.map((item) => [item.unitId, item])).values()
+      );
+      const selectedUnitIds = new Set(uniqueAssignments.map((item) => item.unitId));
+      const selectedUnits = current.units.filter((u) => selectedUnitIds.has(u.id));
+      if (selectedUnits.length !== uniqueAssignments.length) return false;
 
+      const missionByUnitId = new Map(
+        uniqueAssignments.map((assignment) => [assignment.unitId, assignment.missionType])
+      );
+
+      const hasPatrol = uniqueAssignments.some((assignment) => assignment.missionType === "PATROL");
+      let patrolReturnTick: number | undefined;
+      if (hasPatrol) {
+        const hasPatrolCoords =
+          Number.isFinite(request.patrolLatA) &&
+          Number.isFinite(request.patrolLngA) &&
+          Number.isFinite(request.patrolLatB) &&
+          Number.isFinite(request.patrolLngB);
+        if (!hasPatrolCoords || !request.patrolReturnTimeIso) return false;
+        patrolReturnTick = simulationTimeIsoToTick(
+          current.simulationStartTimeIso,
+          request.patrolReturnTimeIso,
+          current.hoursPerTick
+        ) ?? undefined;
+        if (patrolReturnTick == null) return false;
+        if (patrolReturnTick <= current.tick || patrolReturnTick <= departureTick) return false;
+      }
+
+      for (const unit of selectedUnits) {
+        if (unit.status !== "GROUNDED") return false;
+        if (!isPlayerTaskableUnit(unit, current.assets)) return false;
+        const missionType = missionByUnitId.get(unit.id);
+        if (!missionType || !isMissionAllowedForUnit(unit, missionType)) return false;
+        if (isCarrierLanding && unit.role === "TRANSPORT") return false;
+      }
+
+      const hasPendingForAnyUnit = current.deploymentRequests.some(
+        (req) =>
+          req.status === "PENDING_APPROVAL" &&
+          req.units.some((assignment) => selectedUnitIds.has(assignment.unit_id))
+      );
+      if (hasPendingForAnyUnit) return false;
+
+      const slowestSpeed =
+        selectedUnits.length > 0
+          ? Math.min(...selectedUnits.map((unit) => Math.max(0, unit.speed)))
+          : undefined;
+      const estimatedFuel = selectedUnits.reduce(
+        (sum, unit) => sum + estimateFuelRequired(unit, request.targetLat, request.targetLng),
+        0
+      );
       const deployment: DeploymentRequest = {
         id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        unit_id: unit.id,
-        asset_id: unit.asset_id,
-        unit_label: unit.label,
-        mission_type: request.missionType,
+        order_label:
+          request.orderLabel?.trim() || `Tasking Order ${new Date().toLocaleTimeString()}`,
+        units: selectedUnits.map((unit) => ({
+          unit_id: unit.id,
+          asset_id: unit.asset_id,
+          unit_label: unit.label,
+          mission_type: missionByUnitId.get(unit.id) ?? "PATROL",
+        })),
+        same_speed: request.sameSpeed,
         target_lat: request.targetLat,
         target_lng: request.targetLng,
+        return_base_id: request.returnBaseId,
+        patrol_lat_a: hasPatrol ? request.patrolLatA : undefined,
+        patrol_lng_a: hasPatrol ? request.patrolLngA : undefined,
+        patrol_lat_b: hasPatrol ? request.patrolLatB : undefined,
+        patrol_lng_b: hasPatrol ? request.patrolLngB : undefined,
+        patrol_return_tick: patrolReturnTick,
         departure_tick: departureTick,
-        estimated_fuel_required: estimateFuelRequired(
-          unit,
-          request.targetLat,
-          request.targetLng
-        ),
+        estimated_fuel_required: estimatedFuel,
         requested_by: "CADET",
         requested_at: new Date().toISOString(),
         status: "PENDING_APPROVAL",
@@ -1771,12 +1871,31 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       const next: GameState = {
         ...current,
         units: current.units.map((u) =>
-          u.id === request.unitId
+          selectedUnitIds.has(u.id)
             ? {
                 ...u,
                 status: "PENDING_APPROVAL",
                 deployment_status: "PENDING_APPROVAL",
-                mission_type: request.missionType,
+                mission_type: missionByUnitId.get(u.id),
+                tasking_order_id: deployment.id,
+                target_lat:
+                  hasPatrol && Number.isFinite(request.patrolLatA)
+                    ? request.patrolLatA
+                    : request.targetLat,
+                target_lng:
+                  hasPatrol && Number.isFinite(request.patrolLngA)
+                    ? request.patrolLngA
+                    : request.targetLng,
+                return_base_id: request.returnBaseId,
+                patrol_lat_a: hasPatrol ? request.patrolLatA : undefined,
+                patrol_lng_a: hasPatrol ? request.patrolLngA : undefined,
+                patrol_lat_b: hasPatrol ? request.patrolLatB : undefined,
+                patrol_lng_b: hasPatrol ? request.patrolLngB : undefined,
+                patrol_return_tick: patrolReturnTick,
+                synchronized_speed:
+                  request.sameSpeed && typeof slowestSpeed === "number"
+                    ? slowestSpeed
+                    : undefined,
               }
             : u
         ),
@@ -1786,11 +1905,11 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       void sendBroadcast("deployment_request", deployment);
       return true;
     },
-    [persistAndPublish, sendBroadcast]
+    [isMissionAllowedForUnit, persistAndPublish, sendBroadcast]
   );
 
   const decideDeploymentRequest = useCallback(
-    async (requestId: string, decision: "approve" | "deny") => {
+    async (requestId: string, decision: "approve" | "deny", denialReason?: string) => {
       const req = stateRef.current.deploymentRequests.find((r) => r.id === requestId);
       if (!req || req.status !== "PENDING_APPROVAL") return false;
 
@@ -1803,6 +1922,7 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
                 decision === "approve"
                   ? ("APPROVED" as const)
                   : ("DENIED" as const),
+              denial_reason: decision === "deny" ? denialReason : undefined,
               decided_at: decidedAt,
               decided_by: "ADMIN" as const,
             }
@@ -1810,16 +1930,60 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       );
 
       const nextUnits = stateRef.current.units.map((u) => {
-        if (u.id !== req.unit_id) return u;
+        const assignment = req.units.find((candidate) => candidate.unit_id === u.id);
+        if (!assignment) return u;
         if (decision === "approve") {
+          const patrolRoute =
+            assignment.mission_type === "PATROL"
+              ? [
+                  {
+                    lat:
+                      typeof req.patrol_lat_a === "number"
+                        ? req.patrol_lat_a
+                        : req.target_lat,
+                    lng:
+                      typeof req.patrol_lng_a === "number"
+                        ? req.patrol_lng_a
+                        : req.target_lng,
+                  },
+                  {
+                    lat:
+                      typeof req.patrol_lat_b === "number"
+                        ? req.patrol_lat_b
+                        : req.target_lat,
+                    lng:
+                      typeof req.patrol_lng_b === "number"
+                        ? req.patrol_lng_b
+                        : req.target_lng,
+                  },
+                ]
+              : undefined;
           return {
             ...u,
             status: "GROUNDED" as const,
             deployment_status: "APPROVED" as const,
-            mission_type: req.mission_type,
-            target_lat: req.target_lat,
-            target_lng: req.target_lng,
+            mission_type: assignment.mission_type,
+            tasking_order_id: req.id,
+            target_lat:
+              assignment.mission_type === "PATROL" &&
+              typeof req.patrol_lat_a === "number"
+                ? req.patrol_lat_a
+                : req.target_lat,
+            target_lng:
+              assignment.mission_type === "PATROL" &&
+              typeof req.patrol_lng_a === "number"
+                ? req.patrol_lng_a
+                : req.target_lng,
+            return_base_id: req.return_base_id,
+            patrol_lat_a: req.patrol_lat_a,
+            patrol_lng_a: req.patrol_lng_a,
+            patrol_lat_b: req.patrol_lat_b,
+            patrol_lng_b: req.patrol_lng_b,
+            patrol_return_tick: req.patrol_return_tick,
+            synchronized_speed: req.same_speed ? u.synchronized_speed : undefined,
             departure_tick: req.departure_tick,
+            route: patrolRoute,
+            route_index: assignment.mission_type === "PATROL" ? 0 : undefined,
           };
         }
         return {
@@ -1827,6 +1991,19 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
           status: "GROUNDED" as const,
           deployment_status: undefined,
           mission_type: undefined,
+          tasking_order_id: undefined,
+          target_lat: undefined,
+          target_lng: undefined,
+          return_base_id: undefined,
+          patrol_lat_a: undefined,
+          patrol_lng_a: undefined,
+          patrol_lat_b: undefined,
+          patrol_lng_b: undefined,
+          patrol_return_tick: undefined,
+          synchronized_speed: undefined,
+          departure_tick: undefined,
+          route: undefined,
+          route_index: undefined,
         };
       });
 
@@ -1834,65 +2011,6 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
         ...stateRef.current,
         units: nextUnits,
         deploymentRequests: nextRequests,
-      };
-      await persistAndPublish(next, "tick_update");
-      return true;
-    },
-    [persistAndPublish]
-  );
-
-  const initiateRefuel = useCallback(
-    async (receiverId: string) => {
-      const receiver = stateRef.current.units.find((unit) => unit.id === receiverId);
-      if (!receiver || receiver.status !== "AIRBORNE") return false;
-      if (!isPlayerTaskableUnit(receiver, stateRef.current.assets)) return false;
-
-      const candidateTankers = stateRef.current.units.filter((unit) => {
-        if (
-          unit.id === receiver.id ||
-          unit.status !== "AIRBORNE" ||
-          unit.role !== "TANKER"
-        ) {
-          return false;
-        }
-        const radius = Math.max(0, unit.aoe_radius ?? 0);
-        if (
-          radius <= 0 ||
-          (unit.transfer_rate ?? 0) <= 0 ||
-          unit.current_fuel <= 0
-        ) {
-          return false;
-        }
-        return isWithinAoe(unit.lat, unit.lng, receiver.lat, receiver.lng, radius);
-      });
-
-      if (candidateTankers.length === 0) return false;
-      const tanker = candidateTankers.reduce((closest, current) => {
-        const closestDistance = distanceKm(
-          closest.lat,
-          closest.lng,
-          receiver.lat,
-          receiver.lng
-        );
-        const currentDistance = distanceKm(
-          current.lat,
-          current.lng,
-          receiver.lat,
-          receiver.lng
-        );
-        return currentDistance < closestDistance ? current : closest;
-      });
-
-      const nextRefuels = stateRef.current.activeRefuels.filter(
-        (link) =>
-          link.receiverId !== receiver.id &&
-          !(link.receiverId === receiver.id && link.tankerId === tanker.id)
-      );
-      nextRefuels.unshift({ tankerId: tanker.id, receiverId: receiver.id });
-
-      const next = {
-        ...stateRef.current,
-        activeRefuels: nextRefuels,
       };
       await persistAndPublish(next, "tick_update");
       return true;
@@ -1976,7 +2094,6 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjectResponseStatus,
       submitDeploymentRequest,
       decideDeploymentRequest,
-      initiateRefuel,
       executeMission,
     }),
     [
@@ -2007,7 +2124,6 @@ export function RemoteGameStateProvider({ children }: { children: ReactNode }) {
       setInjectResponseStatus,
       submitDeploymentRequest,
       decideDeploymentRequest,
-      initiateRefuel,
       executeMission,
     ]
   );

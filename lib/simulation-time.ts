@@ -45,3 +45,37 @@ export function getSimulationTimeDisplay(
   const ms = computeSimulatedTimeMs(simulationStartTimeIso ?? null, tick, hoursPerTick);
   return formatSimulationTimeUtc(ms);
 }
+
+export function getSimulationIntervalMinutes(hoursPerTick: number): number {
+  return resolveHoursPerTick(hoursPerTick) * 60;
+}
+
+export function simulationTimeIsoToTick(
+  simulationStartTimeIso: string | null | undefined,
+  simulationTimeIso: string,
+  hoursPerTick: number
+): number | null {
+  if (!simulationStartTimeIso) return null;
+  const startMs = Date.parse(simulationStartTimeIso);
+  const inputMs = Date.parse(simulationTimeIso);
+  if (Number.isNaN(startMs) || Number.isNaN(inputMs) || inputMs < startMs) return null;
+  const intervalMs = resolveHoursPerTick(hoursPerTick) * 60 * 60 * 1000;
+  const delta = inputMs - startMs;
+  const ticks = delta / intervalMs;
+  if (!Number.isFinite(ticks) || ticks < 0) return null;
+  const rounded = Math.round(ticks);
+  if (Math.abs(ticks - rounded) > 1e-6) return null;
+  return rounded;
+}
+
+export function isSimulationTimeIsoAligned(
+  simulationStartTimeIso: string | null | undefined,
+  simulationTimeIso: string,
+  hoursPerTick: number
+): boolean {
+  return simulationTimeIsoToTick(
+    simulationStartTimeIso,
+    simulationTimeIso,
+    hoursPerTick
+  ) !== null;
+}

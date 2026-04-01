@@ -26,7 +26,7 @@ function DashboardContent() {
     }
     return !injectResponses[triggerKey(trigger)];
   }).length;
-  const deploymentsBadgeCount = state.deploymentRequests.filter(
+  const taskingOrdersBadgeCount = state.deploymentRequests.filter(
     (request) => request.status === "PENDING_APPROVAL"
   ).length;
 
@@ -76,10 +76,10 @@ function DashboardContent() {
               </span>
               <TabsTrigger value="deployments">
                 <span className="inline-flex items-center gap-2">
-                  Deployments
-                  {deploymentsBadgeCount > 0 && (
+                  Tasking Orders
+                  {taskingOrdersBadgeCount > 0 && (
                     <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-4 text-white">
-                      {deploymentsBadgeCount}
+                      {taskingOrdersBadgeCount}
                     </span>
                   )}
                 </span>

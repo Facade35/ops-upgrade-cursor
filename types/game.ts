@@ -128,9 +128,9 @@ export interface Asset {
   quantity: number;
   home_base: string;
   max_fuel: number;
-  /** Fuel consumed per simulated hour while airborne. */
+  /** Fuel burn rating where 10 = 10,000 lbs/hour (airborne). */
   fuel_burn_rate: number;
-  /** Ground speed in km/h (airborne movement). */
+  /** Speed rating where 1.0 = 1000 mph (airborne movement). */
   speed: number;
   capacity: number;
   role?: UnitRole;
@@ -155,13 +155,30 @@ export type UnitStatus =
   | "DESTROYED";
 export type DeploymentMissionType =
   | "ISR"
-  | "Strike"
-  | "Transport"
-  | "Search & Rescue";
+  | "PATROL"
+  | "STRIKE"
+  | "TRANSPORT"
+  | "AIR_DROP"
+  | "SUPPORT";
 export type DeploymentRequestStatus =
   | "PENDING_APPROVAL"
   | "APPROVED"
   | "DENIED";
+
+export interface TaskingOrderUnitAssignment {
+  unit_id: string;
+  asset_id: string;
+  unit_label: string;
+  mission_type: DeploymentMissionType;
+}
+
+export interface TaskingOrderAiReview {
+  strictness: GradingStrictness;
+  verdict: "APPROVE" | "DENY";
+  summary: string;
+  faults: string[];
+  recommendations?: string[];
+}
 
 export interface SpawnedUnit {
   id: string;
@@ -175,9 +192,9 @@ export interface SpawnedUnit {
   lng: number;
   current_fuel: number;
   max_fuel: number;
-  /** Fuel per simulated hour (airborne). */
+  /** Fuel burn rating where 10 = 10,000 lbs/hour (airborne). */
   fuel_burn_rate: number;
-  /** km/h when airborne. */
+  /** Speed rating where 1.0 = 1000 mph when airborne. */
   speed: number;
   capacity: number;
   role?: UnitRole;
@@ -186,6 +203,14 @@ export interface SpawnedUnit {
   transfer_rate?: number;
   target_lat?: number;
   target_lng?: number;
+  return_base_id?: string;
+  patrol_lat_a?: number;
+  patrol_lng_a?: number;
+  patrol_lat_b?: number;
+  patrol_lng_b?: number;
+  patrol_return_tick?: number;
+  tasking_order_id?: string;
+  synchronized_speed?: number;
   departure_tick?: number;
   deployment_status?: DeploymentRequestStatus;
   mission_type?: DeploymentMissionType;
@@ -202,17 +227,24 @@ export interface SpawnedUnit {
 
 export interface DeploymentRequest {
   id: string;
-  unit_id: string;
-  asset_id: string;
-  unit_label: string;
-  mission_type: DeploymentMissionType;
+  order_label: string;
+  units: TaskingOrderUnitAssignment[];
+  same_speed: boolean;
   target_lat: number;
   target_lng: number;
+  return_base_id: string;
+  patrol_lat_a?: number;
+  patrol_lng_a?: number;
+  patrol_lat_b?: number;
+  patrol_lng_b?: number;
+  patrol_return_tick?: number;
   departure_tick: number;
   estimated_fuel_required: number;
   requested_by: "CADET";
   requested_at: string;
   status: DeploymentRequestStatus;
+  denial_reason?: string;
+  ai_review?: TaskingOrderAiReview;
   decided_at?: string;
   decided_by?: "ADMIN";
 }
@@ -382,7 +414,9 @@ export interface GameDefinition {
   scenarioTitle?: string;
   /**
    * Simulated hours advanced per game tick (default 1). Used to scale movement and fuel.
-   * Asset `speed` is km/h; `fuel_burn_rate` and tanker `transfer_rate` are per simulated hour.
+   * Asset `speed` is a rating where 1.0 = 1000 mph.
+   * `fuel_burn_rate` is a rating where 10 = 10,000 lbs/hour.
+   * Tanker `transfer_rate` remains lbs/hour.
    */
   hours_per_tick?: number;
   /** ISO 8601 scenario start (UTC recommended). Simulated time = start + tick × hours_per_tick. */

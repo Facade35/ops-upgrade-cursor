@@ -1,8 +1,8 @@
 {
   "scenario_metadata": {
-    "title": "Operation Strait Shield - Escalation Drill",
-    "description": "High-intensity Taiwan Strait scenario for grading stress tests. A no-fly zone is declared while PRC forces escalate with strikes on local boats, forcing US carrier-based assets to defend and stabilize the strait.",
-    "tick_rate": 0.05,
+    "title": "Operation Strait Shield - AAR Drill",
+    "description": "High-intensity Taiwan Strait scenario with air-to-air refueling enabled. BLUE aircraft inside tanker AOE auto-refuel, and tanker transfer_rate acts as the placeholder fuel drain rate while refueling.",
+    "tick_rate": 0.2,
     "hours_per_tick": 0.25,
     "scenario_start_time": "2025-06-15T06:00:00.000Z",
     "starting_location": { "lat": 24.8, "lng": 123.6 }
@@ -80,6 +80,21 @@
       "side": "BLUE"
     },
     {
+      "id": "kc135_refuel",
+      "label": "KC-135 Stratotanker",
+      "sidc": "13030100001101090000",
+      "quantity": 1,
+      "home_base": "base_cvn_east_taiwan",
+      "role": "TANKER",
+      "max_fuel": 120000,
+      "fuel_burn_rate": 10,
+      "transfer_rate": 32000,
+      "aoe_radius": 90,
+      "speed": 0.58,
+      "capacity": 0,
+      "side": "BLUE"
+    },
+    {
       "id": "local_boats_proxy",
       "label": "Local Fishing Boats Convoy (Proxy)",
       "sidc": "10043000001402000000",
@@ -113,6 +128,15 @@
       "mission_type": "ISR",
       "target_lat": 24.6,
       "target_lng": 120.0
+    },
+    {
+      "asset_id": "kc135_refuel",
+      "unit_index": 1,
+      "lat": 24.75,
+      "lng": 122.05,
+      "mission_type": "ISR",
+      "target_lat": 24.55,
+      "target_lng": 120.15
     },
     {
       "asset_id": "local_boats_proxy",

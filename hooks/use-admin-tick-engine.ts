@@ -9,9 +9,12 @@ import { resolveFighterEngagements } from "@/lib/air-combat";
 import {
   applyFuelTick,
   applyMovementTick,
+  computeProximityRefuelLinks,
   distanceKm,
+  fuelBurnRatingToLbsPerHour,
   isWithinAoe,
   resolveHoursPerTick,
+  speedRatingToKmPerHour,
 } from "@/lib/simulation-units";
 import { isExplicitAirSidc } from "@/lib/sidc-symbol-set";
 import { persistSimulationState } from "@/lib/supabase";
@@ -124,7 +127,7 @@ function applyHostileMovementTick(
 
     const remaining = distanceKm(unit.lat, unit.lng, targetLat, targetLng);
     if (remaining <= 0) return unit;
-    const stepKm = Math.max(0, unit.speed) * h;
+    const stepKm = speedRatingToKmPerHour(unit.speed) * h;
     if (stepKm <= 0) return unit;
 
     if (stepKm >= remaining) {
@@ -164,7 +167,7 @@ function applyHostileFuelTick(
   const h = resolveHoursPerTick(hoursPerTick);
   return hostileUnits.map((unit) => {
     if (unit.status !== "AIRBORNE" && unit.status !== "SURFACE") return unit;
-    const burn = Math.max(0, unit.fuel_burn_rate) * h;
+    const burn = fuelBurnRatingToLbsPerHour(unit.fuel_burn_rate) * h;
     return {
       ...unit,
       current_fuel: Math.max(0, unit.current_fuel - burn),
@@ -426,7 +429,7 @@ function rebuildKnownTracks(
   const detectorUnits = units.filter(
     (unit) =>
       unit.status === "AIRBORNE" &&
-      (unit.mission_type === "ISR" || unit.mission_type === "Strike")
+      (unit.mission_type === "ISR" || unit.mission_type === "STRIKE")
   );
   if (detectorUnits.length === 0) return [];
 
@@ -489,17 +492,77 @@ function computeNextTickState(state: GameState): GameState {
         ...unit,
         status: "AIRBORNE" as const,
         current_base: null,
+        speed:
+          typeof unit.synchronized_speed === "number" &&
+          Number.isFinite(unit.synchronized_speed)
+            ? unit.synchronized_speed
+            : unit.speed,
       };
     }
     return unit;
   });
+  const withReturnToBaseTarget = launchedUnits.map((unit) => {
+    if (unit.status !== "AIRBORNE" || typeof unit.return_base_id !== "string") return unit;
+    const rtbBase = state.bases.find((base) => base.id === unit.return_base_id);
+    if (!rtbBase) return unit;
+    const atTarget =
+      typeof unit.target_lat === "number" &&
+      typeof unit.target_lng === "number" &&
+      distanceKm(unit.lat, unit.lng, unit.target_lat, unit.target_lng) < 2;
+    const patrolRtbDue =
+      unit.mission_type === "PATROL" &&
+      typeof unit.patrol_return_tick === "number" &&
+      unit.patrol_return_tick <= nextTick;
+    const shouldReturn = patrolRtbDue || (unit.mission_type !== "PATROL" && atTarget);
+    if (!shouldReturn) return unit;
+    return {
+      ...unit,
+      target_lat: rtbBase.lat,
+      target_lng: rtbBase.lng,
+      route: undefined,
+      route_index: undefined,
+    };
+  });
 
-  const movedUnits = applyMovementTick(launchedUnits, h);
+  const movedUnits = applyMovementTick(withReturnToBaseTarget, h);
+  const landedUnits = movedUnits.map((unit) => {
+    if (
+      unit.status !== "AIRBORNE" ||
+      typeof unit.return_base_id !== "string" ||
+      typeof unit.target_lat !== "number" ||
+      typeof unit.target_lng !== "number"
+    ) {
+      return unit;
+    }
+    const base = state.bases.find((candidate) => candidate.id === unit.return_base_id);
+    if (!base) return unit;
+    const arrived = distanceKm(unit.lat, unit.lng, base.lat, base.lng) < 2;
+    if (!arrived) return unit;
+    return {
+      ...unit,
+      status: "GROUNDED" as const,
+      current_base: base.id,
+      lat: base.lat,
+      lng: base.lng,
+      deployment_status: undefined,
+      mission_type: undefined,
+      target_lat: undefined,
+      target_lng: undefined,
+      return_base_id: undefined,
+      patrol_return_tick: undefined,
+      tasking_order_id: undefined,
+      synchronized_speed: undefined,
+      departure_tick: undefined,
+        route: undefined,
+        route_index: undefined,
+    };
+  });
   const movedHostileUnits = applyHostileMovementTick(state.hostileUnits, h);
   const firedEvents = state.events.filter((event) => event.tick === nextTick);
-  const fuelStep = applyFuelTick(movedUnits, state.bases, h);
+  const fuelStep = applyFuelTick(landedUnits, state.bases, h);
+  const refuelLinks = computeProximityRefuelLinks(fuelStep.units);
   const fueledHostileUnits = applyHostileFuelTick(movedHostileUnits, h);
-  const doctrineStep = applyActiveRefuels(fuelStep.units, state.activeRefuels, h);
+  const doctrineStep = applyActiveRefuels(fuelStep.units, refuelLinks, h);
   let workingState: GameState = {
     ...state,
     tick: nextTick,

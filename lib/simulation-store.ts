@@ -362,7 +362,9 @@ export function createDeploymentRequest(
   if (!isPlayerTaskableUnit(unit, state.assets)) return null;
 
   const alreadyPending = state.deploymentRequests.some(
-    (req) => req.unit_id === input.unitId && req.status === "PENDING_APPROVAL"
+    (req) =>
+      req.status === "PENDING_APPROVAL" &&
+      req.units.some((assignment) => assignment.unit_id === input.unitId)
   );
   if (alreadyPending) return null;
 
@@ -370,12 +372,19 @@ export function createDeploymentRequest(
   const now = new Date().toISOString();
   const request: DeploymentRequest = {
     id: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    unit_id: unit.id,
-    asset_id: unit.asset_id,
-    unit_label: unit.label,
-    mission_type: input.missionType,
+    order_label: `Tasking Order ${new Date().toLocaleTimeString()}`,
+    units: [
+      {
+        unit_id: unit.id,
+        asset_id: unit.asset_id,
+        unit_label: unit.label,
+        mission_type: input.missionType,
+      },
+    ],
+    same_speed: false,
     target_lat: input.targetLat,
     target_lng: input.targetLng,
+    return_base_id: unit.current_base ?? unit.home_base,
     departure_tick: departureTick,
     estimated_fuel_required: estimatedFuel,
     requested_by: "CADET",
@@ -390,6 +399,8 @@ export function createDeploymentRequest(
           status: "PENDING_APPROVAL" as const,
           deployment_status: "PENDING_APPROVAL" as const,
           mission_type: input.missionType,
+          tasking_order_id: request.id,
+          return_base_id: unit.current_base ?? unit.home_base,
         }
       : u
   );
@@ -418,14 +429,18 @@ export function approveDeploymentRequest(requestId: string): boolean {
   );
 
   const nextUnits = state.units.map((u) =>
-    u.id === req.unit_id
+    req.units.some((assignment) => assignment.unit_id === u.id)
       ? {
           ...u,
           status: "GROUNDED" as const,
           deployment_status: "APPROVED" as const,
-          mission_type: req.mission_type,
+          mission_type:
+            req.units.find((assignment) => assignment.unit_id === u.id)?.mission_type,
+          tasking_order_id: req.id,
           target_lat: req.target_lat,
           target_lng: req.target_lng,
+          return_base_id: req.return_base_id,
+          patrol_return_tick: req.patrol_return_tick,
           departure_tick: req.departure_tick,
         }
       : u
@@ -456,12 +471,18 @@ export function denyDeploymentRequest(requestId: string): boolean {
   );
 
   const nextUnits = state.units.map((u) =>
-    u.id === req.unit_id
+    req.units.some((assignment) => assignment.unit_id === u.id)
       ? {
           ...u,
           status: "GROUNDED" as const,
           deployment_status: undefined,
           mission_type: undefined,
+          tasking_order_id: undefined,
+          target_lat: undefined,
+          target_lng: undefined,
+          return_base_id: undefined,
+          patrol_return_tick: undefined,
+          departure_tick: undefined,
         }
       : u
   );

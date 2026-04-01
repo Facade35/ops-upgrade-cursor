@@ -12,6 +12,7 @@ export interface DeploymentMapRoute {
   unitLabel?: string;
   missionType?: string;
   departureTick?: number;
+  departureLabel?: string;
   status?: string;
 }
 
@@ -37,6 +38,7 @@ type HoveredRoute = {
   unitLabel?: string;
   missionType?: string;
   departureTick?: number;
+  departureLabel?: string;
   status?: string;
 };
 
@@ -254,7 +256,7 @@ export function DeploymentMap2D({
   const onRouteHover = (
     route: Pick<
       DeploymentMapRoute,
-      "id" | "unitLabel" | "missionType" | "departureTick" | "status"
+      "id" | "unitLabel" | "missionType" | "departureTick" | "departureLabel" | "status"
     > | null
   ) => {
     if (route) {
@@ -263,6 +265,7 @@ export function DeploymentMap2D({
         unitLabel: route.unitLabel,
         missionType: route.missionType,
         departureTick: route.departureTick,
+        departureLabel: route.departureLabel,
         status: route.status,
       });
     } else {
@@ -389,7 +392,10 @@ export function DeploymentMap2D({
           <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/70 px-2 py-1.5 text-[11px] text-zinc-100">
             <p className="font-semibold">{hoveredRoute.unitLabel || "Route"}</p>
             <p>{hoveredRoute.missionType || "Mission"}</p>
-            {hoveredRoute.departureTick != null && <p>Tick {hoveredRoute.departureTick}</p>}
+            {hoveredRoute.departureLabel && <p>{hoveredRoute.departureLabel}</p>}
+            {!hoveredRoute.departureLabel && hoveredRoute.departureTick != null && (
+              <p>Tick {hoveredRoute.departureTick}</p>
+            )}
             {hoveredRoute.status && <p>{hoveredRoute.status}</p>}
           </div>
         )}

@@ -52,10 +52,16 @@ function parseSide(value: unknown, fallback: Side = "BLUE"): Side {
 }
 
 function parseMissionType(value: unknown): DeploymentMissionType | undefined {
-  if (value === "ISR") return "ISR";
-  if (value === "Strike") return "Strike";
-  if (value === "Transport") return "Transport";
-  if (value === "Search & Rescue") return "Search & Rescue";
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toUpperCase().replace(/[\s&-]+/g, "_");
+  if (normalized === "ISR") return "ISR";
+  if (normalized === "PATROL") return "PATROL";
+  if (normalized === "STRIKE") return "STRIKE";
+  if (normalized === "TRANSPORT") return "TRANSPORT";
+  if (normalized === "AIR_DROP" || normalized === "AIRDROP") return "AIR_DROP";
+  if (normalized === "SUPPORT") return "SUPPORT";
+  // Legacy support
+  if (normalized === "SEARCH_RESCUE") return "SUPPORT";
   return undefined;
 }
 
